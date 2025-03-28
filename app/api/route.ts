@@ -78,28 +78,7 @@ export async function POST(request) {
 
         const responseContent = completion.choices[0].message.content;
 
-        let extractionPrompt = [
-            {
-                role: "system",
-                content: fullContext,
-            },
-            {
-                role: "Understanding Agent",
-                content: `
-     From the fullContext, separate these in a list format:
-      - Base City
-      - Travel Dates
-      - Date Flexibility (±X days)
-      - Month Flexibility (±1 month)
-      - Budget Constraints
-      - Group Type and Composition
-      - Maximum Acceptable Duration
-      - Willingness for Self-Transfers
-      - Transit Country Preferences/Restrictions
-      - Destination City (with potential alternatives)
-    \``,
-            },
-            ]
+
 
         const extractedFactors = {};
         responseContent.split("\n").forEach((line) => {
@@ -113,19 +92,19 @@ export async function POST(request) {
                 role: "system",
                 content: JSON.stringify(extractedFactors),
             },
-            {
-                role: "assistant",
-                content: extractionPrompt, 
-            },
         ];
 
-        console.log("Extracted factors:", inputContext); // Debug log
+
+
+        console.log("Extracted factors:", inputContext);
+        console.log("Full context:", fullContext);
 
         messages.push({role: "assistant", content: responseContent});
 
         await redisClient.set(chatKey, JSON.stringify(messages));
 
         return NextResponse.json({ response: responseContent });
+
     } catch (error) {
         console.error("OpenAI API error:", error);
         return NextResponse.json(
