@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-
 const FlightFinderChat = () => {
     const [chatId] = useState(Date.now());
     const [messages, setMessages] = useState([
@@ -18,6 +17,34 @@ const FlightFinderChat = () => {
     const [inputMessage, setInputMessage] = useState("");
     const [isTyping, setIsTyping] = useState(false);
     const scrollRef = useRef(null);
+
+    // Minimalistic FlightOffer component in black and white
+    const FlightOffer = ({ offer }) => (
+        <div className="bg-black border border-white/20 p-3 rounded-md mb-2 text-white">
+            <div className="flex justify-between items-center">
+                <span className="text-lg font-medium">
+                    {offer.price.total} {offer.price.currency}
+                </span>
+                <span className="text-sm">
+                    {offer.validatingAirlineCodes.join(", ")}
+                </span>
+            </div>
+            <div className="mt-2">
+                {offer.itineraries.slice(0, 5).map((itinerary, index) => (
+                    <div key={index} className="text-sm">
+                        <span>
+                            {itinerary.segments[0].departure.iataCode} →{" "}
+                            {itinerary.segments[itinerary.segments.length - 1].arrival.iataCode}
+                        </span>
+                    </div>
+                ))}
+            </div>
+            <div className="mt-1 text-xs text-white/70">
+                <span>Seats: {offer.numberOfBookableSeats}</span> |{" "}
+                <span>Last Ticket: {new Date(offer.lastTicketingDate).toLocaleDateString()}</span>
+            </div>
+        </div>
+    );
 
     const generateResponse = async (query) => {
         setIsTyping(true);
@@ -36,7 +63,12 @@ const FlightFinderChat = () => {
             }
 
             const data = await response.json();
-            const newResponse = { role: "assistant", content: data.response };
+            let content = typeof data.response === "string" ? data.response : data.response;
+            // Limit to 4 flight offers if it's an array
+            if (Array.isArray(content)) {
+                content = content.slice(0, 4);
+            }
+            const newResponse = { role: "assistant", content };
             setMessages((prev) => [...prev, newResponse]);
         } catch (error) {
             console.error("API Error:", error);
@@ -95,13 +127,25 @@ const FlightFinderChat = () => {
                                             <Bot className="w-4 h-4 text-white/40" />
                                         )}
                                     </div>
-                                    <div
-                                        className={`font-light tracking-wide leading-relaxed ${
-                                            message.role === "user" ? "text-right" : "text-left"
-                                        }`}
-                                    >
-                                        {message.content}
-                                    </div>
+                                    {typeof message.content === "string" ? (
+                                        <div
+                                            className={`font-light tracking-wide leading-relaxed ${
+                                                message.role === "user" ? "text-right" : "text-left"
+                                            }`}
+                                        >
+                                            {message.content}
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {Array.isArray(message.content) ? (
+                                                message.content.map((offer, idx) => (
+                                                    <FlightOffer key={idx} offer={offer} />
+                                                ))
+                                            ) : (
+                                                <FlightOffer offer={message.content} />
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ))}

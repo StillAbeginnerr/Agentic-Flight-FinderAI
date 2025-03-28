@@ -1,22 +1,30 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
+import Amadeus from 'amadeus';
+import OpenAI from 'openai';
+import { NextResponse } from 'next/server';
+import { createClient } from 'redis';
 
+// Initialize Amadeus with environment variables
+const amadeus = new Amadeus({
+    clientId: process.env.AMADEUS_CLIENT_ID,
+    clientSecret: process.env.AMADEUS_CLIENT_SECRET,
+});
 
-import OpenAI from "openai";
-import { NextResponse } from "next/server";
-import { createClient } from 'redis'
-
+// Initialize Redis client
 const redisClient = createClient({
     url: process.env.REDIS_URL,
 });
 
+// Initialize OpenAI with API key from environment
 const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY, // Standard OpenAI API key
+    apiKey: process.env.OPENAI_API_KEY,
 });
 
-redisClient.on("error", (error) => console.error("Redis error:", error));
+redisClient.on('error', (error) => console.error('Redis error:', error));
 
-(async () =>{
+// Connect to Redis on startup
+(async () => {
     await redisClient.connect();
     console.log('Redis connected');
 })();
@@ -24,98 +32,94 @@ redisClient.on("error", (error) => console.error("Redis error:", error));
 export async function POST(request) {
     try {
         const { message, chatId } = await request.json();
-
         if (!message) {
-            return NextResponse.json({ error: "Message is required" }, { status: 400 });
+            return NextResponse.json({ error: 'Message is required' }, { status: 400 });
         }
 
         const chatKey = `chat:${chatId}`;
-
-        const conversation = await redisClient.get(chatKey) || "[]";
-        console.log("Raw conversation from Redis:", conversation); // Debug log
-
-        // Handle null or invalid JSON safely
-        let messages = [];
-        if (conversation) {
-            try {
-                messages = JSON.parse(conversation);
-            } catch (parseError) {
-                console.error("Failed to parse conversation:", parseError);
-                messages = []; // Reset to empty array if parsing fails
-            }
-        }
-        messages.push({ role: "user", content: message });
-
+        const conversation = (await redisClient.get(chatKey)) || '[]';
+        let messages = JSON.parse(conversation || '[]');
+        messages.push({ role: 'user', content: message });
 
         const systemPrompt = `
-      You are a flight finder assistant. From the user's input, identify at least 7 of these 10 key factors:
-      - Base City
-      - Travel Dates
-      - Date Flexibility (±X days)
-      - Month Flexibility (±1 month)
-      - Budget Constraints
-      - Group Type and Composition
-      - Maximum Acceptable Duration
-      - Willingness for Self-Transfers
-      - Transit Country Preferences/Restrictions
-      - Destination City (with potential alternatives)
-      
-      If fewer than 7 factors are detected, ask follow-up questions to gather the missing ones, prioritizing required factors (Base City, Travel Dates, Date Flexibility, Month Flexibility, Budget Constraints, Maximum Acceptable Duration, Destination City). Keep responses concise, under 50 words, and in points.
-    `;
+You are a flight finder assistant. From the user's input, identify at least 7 of these 11 key factors:
+- Base City (IATA code, e.g., NYC) || Delhi if not entered
+- Destination City (IATA code, e.g., LAX) || mumbai if not entered
+- Travel Dates (YYYY-MM-DD) || next month date if not entered
+- Number of Adults || 1 if not entered
+- Date Flexibility (±X days)
+- Month Flexibility (±1 month)
+- Budget Constraints
+- Group Type and Composition (e.g., family, solo)
+- Maximum Acceptable Duration || 7 days if not entered.
+- Willingness for Self-Transfers (Optional, Ignore if not entered) || NO
+- Transit Country Preferences/Restrictions || ignore if not entered
 
-        let fullContext = [
-            {
-                role: "system",
-                content: systemPrompt,
-            },
-            ...messages,
-        ]
+If fewer than 7 factors are detected, ask follow-up questions to gather the missing ones, prioritizing required factors (Base City, Destination City, Travel Dates, Number of Adults). Keep responses concise, under 50 words, and in points. Provide factors in a list format, e.g., "- Base City: NYC".
+        `;
 
+        const fullContext = [{ role: 'system', content: systemPrompt }, ...messages];
         const completion = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: fullContext
+            model: 'gpt-4o-mini',
+            messages: fullContext,
         });
 
         const responseContent = completion.choices[0].message.content;
 
-
-
+        // Parse OpenAI response into factors
         const extractedFactors = {};
-        responseContent.split("\n").forEach((line) => {
-            const [key, value] = line.split(":").map((part) => part.trim().replace("- ", ""));
+        responseContent.split('\n').forEach((line) => {
+            const [key, value] = line.split(':').map((part) => part.trim().replace('- ', ''));
             if (key && value) extractedFactors[key] = value;
         });
 
-        // Update inputContext with extracted factors
-        const inputContext = [
-            {
-                role: "system",
-                content: JSON.stringify(extractedFactors),
-            },
-        ];
+        // Define required factors for Amadeus API call
+        const requiredFactors = ['Base City', 'Destination City', 'Travel Dates', 'Number of Adults'];
+        const hasAllRequired = requiredFactors.every((factor) => extractedFactors[factor]);
 
-
-
-        console.log("Extracted factors:", inputContext);
-        console.log("Full context:", fullContext);
-
-        messages.push({role: "assistant", content: responseContent});
-
-        await redisClient.set(chatKey, JSON.stringify(messages));
-
-        return NextResponse.json({ response: responseContent });
-
+        if (hasAllRequired) {
+            const payload = {
+                originLocationCode: extractedFactors['Base City'],
+                destinationLocationCode: extractedFactors['Destination City'],
+                departureDate: extractedFactors['Travel Dates'],
+                adults: extractedFactors['Number of Adults'],
+            };
+            const flightData = await getFlightOffers(payload);
+            messages.push({ role: 'assistant', content: JSON.stringify(flightData) });
+            await redisClient.set(chatKey, JSON.stringify(messages));
+            return NextResponse.json({ response: flightData });
+        } else {
+            messages.push({ role: 'assistant', content: responseContent });
+            await redisClient.set(chatKey, JSON.stringify(messages));
+            return NextResponse.json({ response: responseContent });
+        }
     } catch (error) {
-        console.error("OpenAI API error:", error);
+        console.error('Error:', error);
         return NextResponse.json(
-            { error: "An error occurred while processing your request", details: error.message },
+            { error: 'An error occurred while processing your request', details: error.message },
             { status: 500 }
         );
     }
 }
 
-export const config = {
-    api: {
-        bodyParser: true,
-    },
-};
+async function getFlightOffers(payload) {
+    try {
+        const { originLocationCode, destinationLocationCode, departureDate, adults } = payload;
+        if (!originLocationCode || !destinationLocationCode || !departureDate || !adults) {
+            throw new Error('Missing required fields in payload');
+        }
+        const response = await amadeus.shopping.flightOffersSearch.get({
+            originLocationCode,
+            destinationLocationCode,
+            departureDate,
+            adults,
+        });
+
+        console.log(response)
+
+        return response.data;
+    } catch (error) {
+        console.error('Amadeus GET error:', error.response?.data || error.message);
+        throw error;
+    }
+}
