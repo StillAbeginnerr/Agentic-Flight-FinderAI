@@ -6,36 +6,66 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-const FlightFinderChat = () => {
-    const [chatId] = useState(Date.now());
-    const [messages, setMessages] = useState([
+// Define types for the flight offer and messages
+interface Segment {
+    departure: {
+        iataCode: string;
+    };
+    arrival: {
+        iataCode: string;
+    };
+}
+
+interface Itinerary {
+    segments: Segment[];
+}
+
+interface FlightOfferData {
+    price: {
+        total: string;
+        currency: string;
+    };
+    validatingAirlineCodes: string[];
+    itineraries: Itinerary[];
+    numberOfBookableSeats: number;
+    lastTicketingDate: string;
+}
+
+interface Message {
+    role: "user" | "assistant";
+    content: string | FlightOfferData | FlightOfferData[];
+}
+
+const FlightFinderChat: React.FC = () => {
+    const [chatId] = useState<number>(Date.now());
+    const [messages, setMessages] = useState<Message[]>([
         {
             role: "assistant",
             content: "I'm here to help with your flight plans. What are your preferences?",
         },
     ]);
-    const [inputMessage, setInputMessage] = useState("");
-    const [isTyping, setIsTyping] = useState(false);
-    const scrollRef = useRef(null);
+    const [inputMessage, setInputMessage] = useState<string>("");
+    const [isTyping, setIsTyping] = useState<boolean>(false);
+    const scrollRef = useRef<HTMLDivElement>(null);
 
-    // Minimalistic FlightOffer component in black and white
-    const FlightOffer = ({ offer }) => (
+    // FlightOffer component with typed props
+    const FlightOffer: React.FC<{ offer: FlightOfferData }> = ({ offer }) => (
         <div className="bg-black border border-white/20 p-3 rounded-md mb-2 text-white">
             <div className="flex justify-between items-center">
-                <span className="text-lg font-medium">
-                    {offer.price.total} {offer.price.currency}
-                </span>
+        <span className="text-lg font-medium">
+          {offer.price.total} {offer.price.currency}
+        </span>
                 <span className="text-sm">
-                    {offer.validatingAirlineCodes.join(", ")}
-                </span>
+          {offer.validatingAirlineCodes.join(", ")}
+        </span>
             </div>
             <div className="mt-2">
                 {offer.itineraries.slice(0, 5).map((itinerary, index) => (
                     <div key={index} className="text-sm">
-                        <span>
-                            {itinerary.segments[0].departure.iataCode} →{" "}
-                            {itinerary.segments[itinerary.segments.length - 1].arrival.iataCode}
-                        </span>
+            <span>
+              {itinerary.segments[0].departure.iataCode} →{" "}
+                {itinerary.segments[itinerary.segments.length - 1].arrival.iataCode}
+            </span>
                     </div>
                 ))}
             </div>
@@ -46,7 +76,7 @@ const FlightFinderChat = () => {
         </div>
     );
 
-    const generateResponse = async (query) => {
+    const generateResponse = async (query: string): Promise<void> => {
         setIsTyping(true);
         try {
             const response = await fetch("/api/", {
@@ -63,30 +93,32 @@ const FlightFinderChat = () => {
             }
 
             const data = await response.json();
-            let content = typeof data.response === "string" ? data.response : data.response;
-            // Limit to 4 flight offers if it's an array
+            let content: string | FlightOfferData | FlightOfferData[] =
+                typeof data.response === "string" ? data.response : data.response;
+
             if (Array.isArray(content)) {
                 content = content.slice(0, 4);
             }
-            const newResponse = { role: "assistant", content };
+
+            const newResponse: Message = { role: "assistant", content };
             setMessages((prev) => [...prev, newResponse]);
         } catch (error) {
             console.error("API Error:", error);
             setMessages((prev) => [
                 ...prev,
-                { role: "assistant", content: `Error: ${error.message}` },
+                { role: "assistant", content: `Error: ${(error as Error).message}` },
             ]);
         } finally {
             setIsTyping(false);
         }
     };
 
-    const handleSendMessage = () => {
+    const handleSendMessage = (): void => {
         if (!inputMessage.trim()) return;
-        const newMessage = { role: "user", content: inputMessage };
+        const newMessage: Message = { role: "user", content: inputMessage };
         setMessages((prev) => [...prev, newMessage]);
         setInputMessage("");
-        generateResponse(inputMessage);
+        void generateResponse(inputMessage);
     };
 
     useEffect(() => {
@@ -166,17 +198,21 @@ const FlightFinderChat = () => {
                     <div className="flex gap-4">
                         <Input
                             value={inputMessage}
-                            onChange={(e) => setInputMessage(e.target.value)}
-                            onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                setInputMessage(e.target.value)
+                            }
+                            onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) =>
+                                e.key === "Enter" && handleSendMessage()
+                            }
                             placeholder="Tell me about your flight plans..."
                             className="bg-transparent border-0 border-b border-white/10 rounded-none
-                         text-white placeholder:text-white/30 focus:border-white/30
-                         transition-colors font-light tracking-wide"
+                text-white placeholder:text-white/30 focus:border-white/30
+                transition-colors font-light tracking-wide"
                         />
                         <Button
                             onClick={handleSendMessage}
                             className="bg-white text-black hover:bg-white/90 rounded-full w-10 h-10 p-0
-                         flex items-center justify-center"
+                flex items-center justify-center"
                         >
                             <SendHorizontal className="w-4 h-4" />
                         </Button>
