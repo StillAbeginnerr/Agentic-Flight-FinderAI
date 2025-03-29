@@ -113,7 +113,7 @@ const FlightFinderChat: React.FC = () => {
             console.error("API Error:", error);
             setMessages((prev) => [
                 ...prev,
-                { role: "assistant", content: `Error: ${(error as Error).message}` },
+                { role: "assistant", content: `sorry please try again` },
             ]);
         } finally {
             setIsTyping(false);
