@@ -53,7 +53,7 @@ const FlightFinderChat: React.FC = () => {
         <div className="bg-black border border-white/20 p-3 rounded-md mb-2 text-white">
             <div className="flex justify-between items-center">
         <span className="text-lg font-medium">
-          {offer.price.total} {offer.price.currency}
+          90*{offer.price.total} INR
         </span>
                 <span className="text-sm">
           {offer.validatingAirlineCodes.join(", ")}
