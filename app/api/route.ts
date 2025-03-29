@@ -38,14 +38,14 @@ export async function POST(request) {
 
         const chatKey = `chat:${chatId}`;
         const conversation = (await redisClient.get(chatKey)) || '[]';
-        let messages = JSON.parse(conversation || '[]');
+        const messages = JSON.parse(conversation || '[]');
         messages.push({ role: 'user', content: message });
 
         const systemPrompt = `
 You are a flight finder assistant. From the user's input, identify at least 7 of these 11 key factors:
 - Base City (IATA code, e.g., NYC) || Delhi if not entered
 - Destination City (IATA code, e.g., LAX) || mumbai if not entered
-- Travel Dates (YYYY-MM-DD) || next month date if not entered
+- Travel Dates (YYYY-MM-DD) or 2025-04-01 date if not entered
 - Number of Adults || 1 if not entered
 - Date Flexibility (±X days)
 - Month Flexibility (±1 month)
