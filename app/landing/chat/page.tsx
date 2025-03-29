@@ -79,12 +79,19 @@ const FlightFinderChat: React.FC = () => {
     const generateResponse = async (query: string): Promise<void> => {
         setIsTyping(true);
         try {
+            // You might need to get this clientId from somewhere - environment variable, config, etc.
+            const clientId = process.env.NEXT_PUBLIC_CLIENT_ID || "your-client-id-here";
+
             const response = await fetch("/api/", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({ message: query, chatId }),
+                body: JSON.stringify({
+                    message: query,
+                    chatId,
+                    clientId // Added clientId to the request body
+                }),
             });
 
             if (!response.ok) {

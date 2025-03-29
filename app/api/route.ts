@@ -1,57 +1,72 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck
+// @ts-expect-error
 import Amadeus from 'amadeus';
 import OpenAI from 'openai';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { createClient } from 'redis';
-
-// Initialize Amadeus with environment variables
-const amadeus = new Amadeus({
-    clientId: process.env.AMADEUS_CLIENT_ID,
-    clientSecret: process.env.AMADEUS_CLIENT_SECRET,
-});
 
 // Initialize Redis client
 const redisClient = createClient({
     url: process.env.REDIS_URL,
 });
 
-// Initialize OpenAI with API key from environment
+// Initialize Amadeus with validation
+const amadeus = new Amadeus({
+    clientId: process.env.AMADEUS_CLIENT_ID || (() => { throw new Error('AMADEUS_CLIENT_ID not set'); })(),
+    clientSecret: process.env.AMADEUS_CLIENT_SECRET || (() => { throw new Error('AMADEUS_CLIENT_SECRET not set'); })(),
+});
+
+
+
+// Initialize OpenAI with validation
 const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: process.env.OPENAI_API_KEY || (() => { throw new Error('OPENAI_API_KEY not set'); })(),
 });
 
 redisClient.on('error', (error) => console.error('Redis error:', error));
 
 // Connect to Redis on startup
 (async () => {
-    await redisClient.connect();
-    console.log('Redis connected');
+    try {
+        await redisClient.connect();
+        console.log('Redis connected');
+    } catch (error) {
+        console.error('Redis connection failed:', error);
+    }
 })();
 
-export async function POST(request) {
+export async function POST(request: NextRequest) {
     try {
-        const { message, chatId } = await request.json();
+        const { message, chatId, clientId } = await request.json();
+
+        // Validate basic inputs
         if (!message) {
             return NextResponse.json({ error: 'Message is required' }, { status: 400 });
         }
+        if (!chatId) {
+            return NextResponse.json({ error: 'Chat ID is required' }, { status: 400 });
+        }
+        // Optionally validate clientId if your app needs it
+        if (!clientId) {
+            return NextResponse.json({ error: 'Client ID is required' }, { status: 400 });
+        }
 
         const chatKey = `chat:${chatId}`;
-        const conversation = (await redisClient.get(chatKey)) || '[]';
+        const conversation = await redisClient.get(chatKey) || '[]';
         const messages = JSON.parse(conversation || '[]');
         messages.push({ role: 'user', content: message });
 
         const systemPrompt = `
 You are a flight finder assistant. From the user's input, identify at least 7 of these 11 key factors:
 - Base City (IATA code, e.g., NYC) || Delhi if not entered
-- Destination City (IATA code, e.g., LAX) || mumbai if not entered
-- Travel Dates (YYYY-MM-DD) or 2025-04-01 date if not entered
+- Destination City (IATA code, e.g., LAX) || Mumbai if not entered
+- Travel Dates (YYYY-MM-DD) || 2025-04-01 if not entered
 - Number of Adults || 1 if not entered
 - Date Flexibility (±X days)
 - Month Flexibility (±1 month)
 - Budget Constraints
 - Group Type and Composition (e.g., family, solo)
-- Maximum Acceptable Duration || 7 days if not entered.
+- Maximum Acceptable Duration || 7 days if not entered
 - Willingness for Self-Transfers (Optional, Ignore if not entered) || NO
 - Transit Country Preferences/Restrictions || ignore if not entered
 
@@ -64,16 +79,15 @@ If fewer than 7 factors are detected, ask follow-up questions to gather the miss
             messages: fullContext,
         });
 
-        const responseContent = completion.choices[0].message.content;
+        const responseContent = completion.choices[0].message.content || " ";
 
         // Parse OpenAI response into factors
-        const extractedFactors = {};
+        const extractedFactors: { [key: string]: string } = {};
         responseContent.split('\n').forEach((line) => {
             const [key, value] = line.split(':').map((part) => part.trim().replace('- ', ''));
             if (key && value) extractedFactors[key] = value;
         });
 
-        // Define required factors for Amadeus API call
         const requiredFactors = ['Base City', 'Destination City', 'Travel Dates', 'Number of Adults'];
         const hasAllRequired = requiredFactors.every((factor) => extractedFactors[factor]);
 
@@ -82,7 +96,7 @@ If fewer than 7 factors are detected, ask follow-up questions to gather the miss
                 originLocationCode: extractedFactors['Base City'],
                 destinationLocationCode: extractedFactors['Destination City'],
                 departureDate: extractedFactors['Travel Dates'],
-                adults: extractedFactors['Number of Adults'],
+                adults: parseInt(extractedFactors['Number of Adults']) || 1,
             };
             const flightData = await getFlightOffers(payload);
             messages.push({ role: 'assistant', content: JSON.stringify(flightData) });
@@ -96,13 +110,23 @@ If fewer than 7 factors are detected, ask follow-up questions to gather the miss
     } catch (error) {
         console.error('Error:', error);
         return NextResponse.json(
-            { error: 'An error occurred while processing your request', details: error.message },
+            { error: 'An error occurred while processing your request', details: (error as Error).message },
             { status: 500 }
         );
+    } finally {
+        // Ensure Redis connection is maintained
+        if (!redisClient.isOpen) {
+            await redisClient.connect();
+        }
     }
 }
 
-async function getFlightOffers(payload) {
+async function getFlightOffers(payload: {
+    originLocationCode: string;
+    destinationLocationCode: string;
+    departureDate: string;
+    adults: number;
+}) {
     try {
         const { originLocationCode, destinationLocationCode, departureDate, adults } = payload;
         if (!originLocationCode || !destinationLocationCode || !departureDate || !adults) {
@@ -112,14 +136,20 @@ async function getFlightOffers(payload) {
             originLocationCode,
             destinationLocationCode,
             departureDate,
-            adults,
+            adults: adults.toString(), // Amadeus expects string
         });
 
-        console.log(response)
-
+        console.log('Flight offers response:', response.data);
         return response.data;
     } catch (error) {
-        console.error('Amadeus GET error:', error.response?.data || error.message);
+        // console.error('Amadeus GET error:', error.response?.data || error.message);
+        console.log(error)
         throw error;
     }
 }
+
+// Ensure proper cleanup on server shutdown
+process.on('SIGTERM', async () => {
+    await redisClient.quit();
+    process.exit(0);
+});
