@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { SendHorizontal, Bot, User } from "lucide-react";
+import { SendHorizontal, Bot, User, Calendar, Clock, Luggage } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -10,25 +10,36 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 interface Segment {
     departure: {
         iataCode: string;
+        at?: string; // Adding optional departure time
     };
     arrival: {
         iataCode: string;
+        at?: string; // Adding optional arrival time
     };
+    duration?: string;
+    carrierCode?: string;
 }
 
 interface Itinerary {
     segments: Segment[];
+    duration?: string;
 }
 
 interface FlightOfferData {
     price: {
         total: string;
         currency: string;
+        base?: string;
+        grandTotal?: string;
     };
     validatingAirlineCodes: string[];
     itineraries: Itinerary[];
     numberOfBookableSeats: number;
     lastTicketingDate: string;
+    pricingOptions?: {
+        fareType?: string[];
+        includedCheckedBagsOnly?: boolean;
+    };
 }
 
 interface Message {
@@ -36,45 +47,103 @@ interface Message {
     content: string | FlightOfferData | FlightOfferData[];
 }
 
+// Exchange rate - EUR to INR (as of March 2025, this is an approximation)
+const EUR_TO_INR = 92.5;
+
 const FlightFinderChat: React.FC = () => {
     const [chatId] = useState<number>(Date.now());
     const [messages, setMessages] = useState<Message[]>([
         {
             role: "assistant",
-            content: "I'm here to help with your flight plans. Please state your query, dates in YYYY-MM-DD formats. thank you",
+            content: "I'm here to help with your flight plans. Please state your query, dates in YYYY-MM-DD formats. Thank you!",
         },
     ]);
     const [inputMessage, setInputMessage] = useState<string>("");
     const [isTyping, setIsTyping] = useState<boolean>(false);
     const scrollRef = useRef<HTMLDivElement>(null);
 
-    // FlightOffer component with typed props
-    const FlightOffer: React.FC<{ offer: FlightOfferData }> = ({ offer }) => (
-        <div className="bg-black border border-white/20 p-3 rounded-md mb-2 text-white">
-            <div className="flex justify-between items-center">
-        <span className="text-lg font-medium">
-          {offer.price.total} {offer.price.currency}
-        </span>
-                <span className="text-sm">
-          {offer.validatingAirlineCodes.join(", ")}
-        </span>
-            </div>
-            <div className="mt-2">
-                {offer.itineraries.slice(0, 5).map((itinerary, index) => (
-                    <div key={index} className="text-sm">
-            <span>
-              {itinerary.segments[0].departure.iataCode} →{" "}
-                {itinerary.segments[itinerary.segments.length - 1].arrival.iataCode}
-            </span>
+    // Function to convert EUR to INR
+    const convertToRupees = (euroAmount: string): string => {
+        const amount = parseFloat(euroAmount);
+        const rupeesAmount = (amount * EUR_TO_INR).toFixed(2);
+        return rupeesAmount;
+    };
+
+    // Format date and time for better readability
+    const formatDateTime = (dateTimeString?: string): string => {
+        if (!dateTimeString) return "N/A";
+        return new Date(dateTimeString).toLocaleString("en-IN");
+    };
+
+    // FlightOffer component with typed props and enhanced display
+    const FlightOffer: React.FC<{ offer: FlightOfferData }> = ({ offer }) => {
+        // Convert price to rupees
+        const priceInRupees = convertToRupees(offer.price.total);
+
+        return (
+            <div className="bg-black border border-white/20 p-4 rounded-md mb-3 text-white">
+                <div className="flex justify-between items-center mb-2">
+                    <span className="text-lg font-medium">
+                        ₹{priceInRupees} <span className="text-xs text-white/70">(€{offer.price.total})</span>
+                    </span>
+                    <span className="text-sm bg-white/10 px-2 py-1 rounded">
+                        {offer.validatingAirlineCodes.join(", ")}
+                    </span>
+                </div>
+
+                <div className="space-y-3 mt-3">
+                    {offer.itineraries.map((itinerary, itinIndex) => (
+                        <div key={itinIndex} className="border-t border-white/10 pt-2">
+                            <div className="flex items-center mb-1">
+                                <Clock className="w-3 h-3 mr-1 text-white/60" />
+                                <span className="text-xs text-white/70">
+                                    Duration: {itinerary.duration || "N/A"}
+                                </span>
+                            </div>
+
+                            {itinerary.segments.map((segment, segIndex) => (
+                                <div key={segIndex} className="text-sm my-2">
+                                    <div className="flex justify-between">
+                                        <span className="font-medium">
+                                            {segment.departure.iataCode} → {segment.arrival.iataCode}
+                                        </span>
+                                        <span className="text-xs">{segment.carrierCode || ""}</span>
+                                    </div>
+
+                                    <div className="text-xs text-white/70 flex justify-between mt-1">
+                                        <span>{formatDateTime(segment.departure.at)}</span>
+                                        <span>{formatDateTime(segment.arrival.at)}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+
+                <div className="mt-3 pt-2 border-t border-white/10 flex flex-wrap gap-2 text-xs text-white/70">
+                    <div className="flex items-center">
+                        <Calendar className="w-3 h-3 mr-1" />
+                        <span>Last Ticket: {new Date(offer.lastTicketingDate).toLocaleDateString("en-IN")}</span>
                     </div>
-                ))}
+
+                    <div className="flex items-center">
+                        <Luggage className="w-3 h-3 mr-1" />
+                        <span>Bags: {offer.pricingOptions?.includedCheckedBagsOnly ? "Included" : "Not included"}</span>
+                    </div>
+
+                    <div>
+                        <span>Seats: {offer.numberOfBookableSeats}</span>
+                    </div>
+
+                    {offer.pricingOptions?.fareType && (
+                        <div>
+                            <span>Fare: {offer.pricingOptions.fareType.join(", ")}</span>
+                        </div>
+                    )}
+                </div>
             </div>
-            <div className="mt-1 text-xs text-white/70">
-                <span>Seats: {offer.numberOfBookableSeats}</span> |{" "}
-                <span>Last Ticket: {new Date(offer.lastTicketingDate).toLocaleDateString()}</span>
-            </div>
-        </div>
-    );
+        );
+    };
 
     const generateResponse = async (query: string): Promise<void> => {
         setIsTyping(true);
@@ -113,7 +182,7 @@ const FlightFinderChat: React.FC = () => {
             console.error("API Error:", error);
             setMessages((prev) => [
                 ...prev,
-                { role: "assistant", content: `sorry please try again` },
+                { role: "assistant", content: `Sorry, there was an error processing your request. Please try again.` },
             ]);
         } finally {
             setIsTyping(false);
