@@ -41,7 +41,7 @@ const FlightFinderChat: React.FC = () => {
     const [messages, setMessages] = useState<Message[]>([
         {
             role: "assistant",
-            content: "I'm here to help with your flight plans. What are your preferences?",
+            content: "I'm here to help with your flight plans. Please state your query, dates in YYYY-MM-DD formats. thank you",
         },
     ]);
     const [inputMessage, setInputMessage] = useState<string>("");
