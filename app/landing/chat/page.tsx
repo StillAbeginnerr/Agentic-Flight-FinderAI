@@ -6,13 +6,62 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
+// Define TypeScript interfaces
+interface Segment {
+    departure: {
+        iataCode: string;
+        at: string;
+    };
+    arrival: {
+        iataCode: string;
+        at: string;
+    };
+    carrierCode?: string;
+}
+
+interface Itinerary {
+    duration?: string;
+    segments: Segment[];
+}
+
+interface PricingOptions {
+    includedCheckedBagsOnly?: boolean;
+    fareType?: string[];
+}
+
+interface FlightOffer {
+    price: {
+        currency: string;
+        total: string;
+    };
+    validatingAirlineCodes?: string[];
+    itineraries: Itinerary[];
+    lastTicketingDate: string;
+    numberOfBookableSeats: number;
+    pricingOptions?: PricingOptions;
+    reasoning?: string;
+    transitRoutes?: string;
+    familySoloConsideration?: string;
+    morningNightComparison?: string;
+    visaInfo?: string;
+}
+
+interface Message {
+    role: "user" | "assistant";
+    content: string | FlightOffer[];
+}
+
+interface UserPreferences {
+    preferredTime?: "morning" | "afternoon" | "evening";
+    directFlight?: boolean;
+}
 
 // Exchange rate - EUR to INR (as of March 2025, this is an approximation)
 const EUR_TO_INR = 92.5;
 
 const FlightFinderChat = () => {
     const [chatId] = useState(Date.now());
-    const [messages, setMessages] = useState([
+    const [messages, setMessages] = useState<Message[]>([
         {
             role: "assistant",
             content: "I'm here to help with your flight plans. Tell me your departure city, destination, dates, and any other preferences you have!",
@@ -20,29 +69,29 @@ const FlightFinderChat = () => {
     ]);
     const [inputMessage, setInputMessage] = useState("");
     const [isTyping, setIsTyping] = useState(false);
-    const scrollRef = useRef(null);
+    const scrollRef = useRef<HTMLDivElement>(null);
 
     // Function to convert EUR to INR
-    const convertToRupees = (euroAmount:any) => {
+    const convertToRupees = (euroAmount: string) => {
         const amount = parseFloat(euroAmount);
         const rupeesAmount = (amount * EUR_TO_INR).toFixed(2);
         return rupeesAmount;
     };
 
     // Format date and time for better readability
-    const formatDateTime = (dateTimeString:any) => {
+    const formatDateTime = (dateTimeString: string) => {
         if (!dateTimeString) return "N/A";
         return new Date(dateTimeString).toLocaleString("en-IN");
     };
 
     // Function to compute layover duration in hours (if any)
-    const computeLayoverDuration = (flight:any) => {
+    const computeLayoverDuration = (flight: FlightOffer) => {
         if (flight.itineraries[0].segments.length > 1) {
             let totalLayover = 0;
             for (let i = 1; i < flight.itineraries[0].segments.length; i++) {
-                const prevArrival:any = new Date(flight.itineraries[0].segments[i - 1].arrival.at);
-                const currDeparture:any = new Date(flight.itineraries[0].segments[i].departure.at);
-                totalLayover += (currDeparture - prevArrival) / (1000 * 60 * 60); // in hours
+                const prevArrival = new Date(flight.itineraries[0].segments[i - 1].arrival.at);
+                const currDeparture = new Date(flight.itineraries[0].segments[i].departure.at);
+                totalLayover += (currDeparture.getTime() - prevArrival.getTime()) / (1000 * 60 * 60); // in hours
             }
             return totalLayover;
         }
@@ -50,14 +99,14 @@ const FlightFinderChat = () => {
     };
 
     // Calculate cost score (1 to 5)
-    const calculateCostScore = (flightPrice:any, minPrice:any, maxPrice:any) => {
+    const calculateCostScore = (flightPrice: number, minPrice: number, maxPrice: number) => {
         // Normalize the price so that the cheapest gets a 5 and the most expensive a 1.
         const normalized = (maxPrice - flightPrice) / (maxPrice - minPrice || 1);
         return Math.round(normalized * 4 + 1); // scale between 1 and 5
     };
 
     // Calculate convenience score based on timing, direct flights, and layover duration.
-    const calculateConvenienceScore = (flight:any, userPreferences:any) => {
+    const calculateConvenienceScore = (flight: FlightOffer, userPreferences: UserPreferences) => {
         let score = 0;
         let factors = 0;
 
@@ -94,12 +143,22 @@ const FlightFinderChat = () => {
     };
 
     // Calculate overall recommendation score as a weighted average
-    const calculateOverallScore = (costScore:any, convenienceScore:any, weightCost = 0.5, weightConvenience = 0.5) => {
+    const calculateOverallScore = (costScore: number, convenienceScore: number, weightCost = 0.5, weightConvenience = 0.5) => {
         return Math.round(costScore * weightCost + convenienceScore * weightConvenience);
     };
 
     // FlightOffer component with recommendation score and booking link
-    const FlightOffer = ({ offer, userPreferences, minPrice, maxPrice }) => {
+    const FlightOfferComponent = ({
+                                      offer,
+                                      userPreferences,
+                                      minPrice,
+                                      maxPrice
+                                  }: {
+        offer: FlightOffer;
+        userPreferences: UserPreferences;
+        minPrice: number;
+        maxPrice: number;
+    }) => {
         // Convert price to rupees if currency is EUR
         const priceDisplay = offer.price.currency === "EUR"
             ? `₹${convertToRupees(offer.price.total)} (€${offer.price.total})`
@@ -109,7 +168,6 @@ const FlightFinderChat = () => {
         const costScore = calculateCostScore(parseFloat(offer.price.total), minPrice, maxPrice);
         const convenienceScore = calculateConvenienceScore(offer, userPreferences);
         const overallScore = calculateOverallScore(costScore, convenienceScore);
-
 
         return (
             <div className="bg-black border border-white/20 p-4 rounded-md mb-3 text-white">
@@ -131,7 +189,7 @@ const FlightFinderChat = () => {
                 )}
 
                 <div className="space-y-3 mt-3">
-                    {offer.itineraries.map((itinerary:any, itinIndex:any) => (
+                    {offer.itineraries.map((itinerary, itinIndex) => (
                         <div key={itinIndex} className="border-t border-white/10 pt-2">
                             <div className="flex items-center mb-1">
                                 <Clock className="w-3 h-3 mr-1 text-white/60" />
@@ -139,7 +197,7 @@ const FlightFinderChat = () => {
                   Duration: {itinerary.duration || "N/A"}
                 </span>
                             </div>
-                            {itinerary.segments.map((segment:any, segIndex:any) => (
+                            {itinerary.segments.map((segment, segIndex) => (
                                 <div key={segIndex} className="text-sm my-2">
                                     <div className="flex justify-between">
                     <span className="font-medium">
@@ -197,18 +255,11 @@ const FlightFinderChat = () => {
                         </div>
                     )}
                 </div>
-
-                {/* Tavily Booking Link */}
-                {/*<div className="mt-3">*/}
-                {/*    <a href={bookingLink} target="_blank" rel="noopener noreferrer" className="text-blue-400 text-sm underline">*/}
-                {/*        Book via Tavily*/}
-                {/*    </a>*/}
-                {/*</div>*/}
             </div>
         );
     };
 
-    const generateResponse = async (query:any) => {
+    const generateResponse = async (query: string) => {
         setIsTyping(true);
         try {
             // Get clientId from environment or use a default
@@ -227,18 +278,28 @@ const FlightFinderChat = () => {
                 throw new Error(`Error: ${response.status} - ${errorText}`);
             }
             const data = await response.json();
-            let content = data.response;
+            let content: string | FlightOffer[] = data.response;
+
             // If content is an array, limit to 4 options
             if (Array.isArray(content)) {
-                content = content.slice(0, 4);
+                content = content.slice(0, 4) as FlightOffer[];
             }
-            const newResponse = { role: "assistant", content };
+
+            // Ensure the role is properly typed
+            const newResponse: Message = {
+                role: "assistant" as const,
+                content
+            };
+
             setMessages((prev) => [...prev, newResponse]);
         } catch (error) {
             console.error("API Error:", error);
             setMessages((prev) => [
                 ...prev,
-                { role: "assistant", content: `Sorry, there was an error processing your request. Please try again.` },
+                {
+                    role: "assistant" as const,
+                    content: `Sorry, there was an error processing your request. Please try again.`
+                },
             ]);
         } finally {
             setIsTyping(false);
@@ -247,7 +308,10 @@ const FlightFinderChat = () => {
 
     const handleSendMessage = () => {
         if (!inputMessage.trim()) return;
-        const newMessage = { role: "user", content: inputMessage };
+        const newMessage: Message = {
+            role: "user",
+            content: inputMessage
+        };
         setMessages((prev) => [...prev, newMessage]);
         setInputMessage("");
         generateResponse(inputMessage);
@@ -301,30 +365,27 @@ const FlightFinderChat = () => {
                                         </div>
                                     ) : (
                                         <div className="space-y-2">
-                                            {Array.isArray(message.content) ? (
-                                                message.content.map((offer, idx) => {
-                                                    // Determine min and max prices for cost scoring
-                                                    const prices = message.content.map(f => parseFloat(f.price.total));
-                                                    const minPrice = Math.min(...prices);
-                                                    const maxPrice = Math.max(...prices);
-                                                    // For demonstration, here we use hardcoded user preferences.
-                                                    const userPreferences = {
-                                                        preferredTime: "morning", // or "afternoon", "evening"
-                                                        directFlight: true,
-                                                    };
-                                                    return (
-                                                        <FlightOffer
-                                                            key={idx}
-                                                            offer={offer}
-                                                            userPreferences={userPreferences}
-                                                            minPrice={minPrice}
-                                                            maxPrice={maxPrice}
-                                                        />
-                                                    );
-                                                })
-                                            ) : (
-                                                <FlightOffer offer={message.content} />
-                                            )}
+                                            {Array.isArray(message.content) && message.content.map((offer, idx) => {
+                                                // Determine min and max prices for cost scoring
+                                                const prices = message.content as FlightOffer[];
+                                                const priceValues = prices.map(f => parseFloat(f.price.total));
+                                                const minPrice = Math.min(...priceValues);
+                                                const maxPrice = Math.max(...priceValues);
+                                                // For demonstration, here we use hardcoded user preferences.
+                                                const userPreferences: UserPreferences = {
+                                                    preferredTime: "morning", // or "afternoon", "evening"
+                                                    directFlight: true,
+                                                };
+                                                return (
+                                                    <FlightOfferComponent
+                                                        key={idx}
+                                                        offer={offer}
+                                                        userPreferences={userPreferences}
+                                                        minPrice={minPrice}
+                                                        maxPrice={maxPrice}
+                                                    />
+                                                );
+                                            })}
                                         </div>
                                     )}
                                 </div>
@@ -348,7 +409,7 @@ const FlightFinderChat = () => {
                         <Input
                             value={inputMessage}
                             onChange={(e) => setInputMessage(e.target.value)}
-                            onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                            onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
                             placeholder="Tell me about your flight plans..."
                             className="bg-transparent border-0 border-b border-white/10 rounded-none
                 text-white placeholder:text-white/30 focus:border-white/30
