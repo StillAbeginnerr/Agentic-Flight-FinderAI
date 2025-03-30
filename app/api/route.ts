@@ -28,6 +28,7 @@ const withRedisRetry = async (fn, maxRetries = 3, delayMs = 500) => {
         try {
             return await fn();
         } catch (err) {
+            console.log(err)
             if (i === maxRetries - 1) return null;
             await new Promise((resolve) => setTimeout(resolve, delayMs * (i + 1)));
         }
@@ -35,12 +36,12 @@ const withRedisRetry = async (fn, maxRetries = 3, delayMs = 500) => {
     return null;
 };
 
-const formatDate = (date) => date.toISOString().split("T")[0];
-const addDays = (date, days) => {
-    const result = new Date(date);
-    result.setDate(result.getDate() + days);
-    return result;
-};
+// const formatDate = (date) => date.toISOString().split("T")[0];
+// const addDays = (date, days) => {
+//     const result = new Date(date);
+//     result.setDate(result.getDate() + days);
+//     return result;
+// };
 
 const getTotalDuration = (duration) => {
     const hours = parseInt(duration.match(/(\d+)H/)?.[1] || "0");
@@ -204,7 +205,7 @@ async function getLocationIATA(location) {
     const cachedIATA = await withRedisRetry(() => redisClient.get(cacheKey));
     if (cachedIATA) return cachedIATA;
     try {
-        let response = await amadeus.referenceData.locations.get({
+        const response = await amadeus.referenceData.locations.get({
             keyword: location,
             subType: "AIRPORT,CITY",
         });

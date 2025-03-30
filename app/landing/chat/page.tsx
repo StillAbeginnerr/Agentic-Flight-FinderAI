@@ -6,41 +6,41 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-const ResponseFormatter = ({ response }) => {
-    // Function to format paragraphs with consistent styling
-    const formatParagraphs = (text) => {
-        // Split the response by double line breaks or numbered/bullet points
-        const paragraphs = text.split(/\n\n|\r\n\r\n|(?=\d+\.\s)/).filter(p => p.trim().length > 0);
-        return paragraphs.map((paragraph, index) => {
-            // Handle specifically formatted sections like numbered lists
-            if (paragraph.match(/^\d+\.\s\*\*.+?\*\*:/)) {
-                // This is a titled point (like "1. **Distance and Travel Time:**")
-                const [title, ...content] = paragraph.split(/(?<=:)/).map(p => p.trim());
-                return (
-                    <div key={index} className="mb-4">
-                        <h3 className="text-white font-medium mb-2">{title}</h3>
-                        <p className="text-white/70 font-light tracking-wide leading-relaxed">
-                            {content.join(' ')} <br/>
-                        </p>
-                    </div>
-                );
-            } else {
-                // Regular paragraph
-                return (
-                    <p key={index} className="text-white/90 font-light tracking-wide leading-relaxed mb-4">
-                        {paragraph}
-                    </p>
-                );
-            }
-        });
-    };
-
-    return (
-        <div className="space-y-2">
-            {formatParagraphs(response)}
-        </div>
-    );
-};
+// const ResponseFormatter = ({ response }) => {
+//     // Function to format paragraphs with consistent styling
+//     const formatParagraphs = (text) => {
+//         // Split the response by double line breaks or numbered/bullet points
+//         const paragraphs = text.split(/\n\n|\r\n\r\n|(?=\d+\.\s)/).filter(p => p.trim().length > 0);
+//         return paragraphs.map((paragraph, index) => {
+//             // Handle specifically formatted sections like numbered lists
+//             if (paragraph.match(/^\d+\.\s\*\*.+?\*\*:/)) {
+//                 // This is a titled point (like "1. **Distance and Travel Time:**")
+//                 const [title, ...content] = paragraph.split(/(?<=:)/).map(p => p.trim());
+//                 return (
+//                     <div key={index} className="mb-4">
+//                         <h3 className="text-white font-medium mb-2">{title}</h3>
+//                         <p className="text-white/70 font-light tracking-wide leading-relaxed">
+//                             {content.join(' ')} <br/>
+//                         </p>
+//                     </div>
+//                 );
+//             } else {
+//                 // Regular paragraph
+//                 return (
+//                     <p key={index} className="text-white/90 font-light tracking-wide leading-relaxed mb-4">
+//                         {paragraph}
+//                     </p>
+//                 );
+//             }
+//         });
+//     };
+//
+//     return (
+//         <div className="space-y-2">
+//             {formatParagraphs(response)}
+//         </div>
+//     );
+// };
 
 // Exchange rate - EUR to INR (as of March 2025, this is an approximation)
 const EUR_TO_INR = 92.5;
@@ -133,16 +133,6 @@ const FlightFinderChat = () => {
         return Math.round(costScore * weightCost + convenienceScore * weightConvenience);
     };
 
-    // Generate Tavily booking link (example using query parameters)
-    const generateTavilyBookingLink = (flight) => {
-        const baseURL = "https://www.tavily.com/search";
-        const origin = flight.itineraries[0].segments[0].departure.iataCode;
-        const destination = flight.itineraries[0].segments[flight.itineraries[0].segments.length - 1].arrival.iataCode;
-        const date = flight.itineraries[0].segments[0].departure.at.split("T")[0];
-        const params = new URLSearchParams({ origin, destination, date });
-        return `${baseURL}?${params.toString()}`;
-    };
-
     // FlightOffer component with recommendation score and booking link
     const FlightOffer = ({ offer, userPreferences, minPrice, maxPrice }) => {
         // Convert price to rupees if currency is EUR
@@ -155,8 +145,6 @@ const FlightFinderChat = () => {
         const convenienceScore = calculateConvenienceScore(offer, userPreferences);
         const overallScore = calculateOverallScore(costScore, convenienceScore);
 
-        // Generate booking link for Tavily
-        const bookingLink = generateTavilyBookingLink(offer);
 
         return (
             <div className="bg-black border border-white/20 p-4 rounded-md mb-3 text-white">
