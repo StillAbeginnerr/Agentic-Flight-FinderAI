@@ -338,7 +338,7 @@ You are a flight search assistant. Based on the user's latest message:
 
     if (result.type === "text") {
         const explanation = await openai.chat.completions.create({
-            model: "gpt-4o",
+            model: "gpt-4o-mini",
             messages: [
                 { role: "system", content: "Provide a helpful response or explanation based on the user's query and prior context." },
                 ...messages.map((m: any) => ({ role: m.role, content: typeof m.content === "string" ? m.content : JSON.stringify(m.content) })),

@@ -189,7 +189,7 @@ const FlightFinderChat = () => {
         minPrice: number;
         maxPrice: number;
     }) => {
-        const [showCostBreakdown, setShowCostBreakdown] = useState(false);
+        const [showCostBreakdown, setShowCostBreakdown] = useState(true);
 
         // Convert price to rupees if currency is EUR
         const priceInNumber = parseFloat(offer.price.total);
@@ -246,7 +246,7 @@ const FlightFinderChat = () => {
                             <span>{offer.price.currency === "EUR" ? `€${costBreakdown.taxes}` : `₹${costBreakdown.taxes}`}</span>
                         </div>
                         <div className="flex justify-between mb-1">
-                            <span>Fees:</span>
+                            <span>Airport Development Fees:</span>
                             <span>{offer.price.currency === "EUR" ? `€${costBreakdown.fees}` : `₹${costBreakdown.fees}`}</span>
                         </div>
                         {costBreakdown.discount && (
