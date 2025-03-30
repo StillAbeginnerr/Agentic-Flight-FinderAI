@@ -1,0 +1,2 @@
+Basically API Dynamic switching for according to user's prompt and need to find the best response.
+Using Web Search API to check

@@ -7,14 +7,16 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 // Define types for the flight offer and messages
+// These would be TypeScript interfaces in a .ts file
+/*
 interface Segment {
     departure: {
         iataCode: string;
-        at?: string; // Adding optional departure time
+        at?: string;
     };
     arrival: {
         iataCode: string;
-        at?: string; // Adding optional arrival time
+        at?: string;
     };
     duration?: string;
     carrierCode?: string;
@@ -40,56 +42,107 @@ interface FlightOfferData {
         fareType?: string[];
         includedCheckedBagsOnly?: boolean;
     };
+    reasoning?: string;
+    familySoloConsideration?: string;
+    morningNightComparison?: string;
+    visaInfo?: string;
+    transitRoutes?: string;
 }
 
 interface Message {
     role: "user" | "assistant";
     content: string | FlightOfferData | FlightOfferData[];
 }
+*/
+
+
+const ResponseFormatter = ({ response }) => {
+    // Function to format paragraphs with consistent styling
+    const formatParagraphs = (text) => {
+        // Split the response by double line breaks or numbered/bullet points
+        const paragraphs = text.split(/\n\n|\r\n\r\n|(?=\d+\.\s)/).filter(p => p.trim().length > 0);
+
+        return paragraphs.map((paragraph, index) => {
+            // Handle specifically formatted sections like numbered lists
+            if (paragraph.match(/^\d+\.\s\*\*.+?\*\*:/)) {
+                // This is a titled point (like "1. **Distance and Travel Time:**")
+                const [title, ...content] = paragraph.split(/(?<=:)/).map(p => p.trim());
+
+                return (
+                    <div key={index} className="mb-4">
+                        <h3 className="text-white font-medium mb-2">{title}</h3>
+                        <p className="text-white/70 font-light tracking-wide leading-relaxed">
+                            {content.join(' ')} <br/>
+                        </p>
+                    </div>
+                );
+            } else {
+                // Regular paragraph
+                return (
+                    <p key={index} className="text-white/90 font-light tracking-wide leading-relaxed mb-4">
+                        {paragraph}
+                    </p>
+                );
+            }
+        });
+    };
+
+    return (
+        <div className="space-y-2">
+            {formatParagraphs(response)}
+        </div>
+    );
+};
+
 
 // Exchange rate - EUR to INR (as of March 2025, this is an approximation)
 const EUR_TO_INR = 92.5;
 
-const FlightFinderChat: React.FC = () => {
-    const [chatId] = useState<number>(Date.now());
-    const [messages, setMessages] = useState<Message[]>([
+const FlightFinderChat = () => {
+    const [chatId] = useState(Date.now());
+    const [messages, setMessages] = useState([
         {
             role: "assistant",
-            content: "I'm here to help with your flight plans. Please state your query, dates in YYYY-MM-DD formats. Thank you!",
+            content: "I'm here to help with your flight plans. Tell me your departure city, destination, dates, and any other preferences you have!",
         },
     ]);
-    const [inputMessage, setInputMessage] = useState<string>("");
-    const [isTyping, setIsTyping] = useState<boolean>(false);
-    const scrollRef = useRef<HTMLDivElement>(null);
+    const [inputMessage, setInputMessage] = useState("");
+    const [isTyping, setIsTyping] = useState(false);
+    const scrollRef = useRef(null);
 
     // Function to convert EUR to INR
-    const convertToRupees = (euroAmount: string): string => {
+    const convertToRupees = (euroAmount) => {
         const amount = parseFloat(euroAmount);
         const rupeesAmount = (amount * EUR_TO_INR).toFixed(2);
         return rupeesAmount;
     };
 
     // Format date and time for better readability
-    const formatDateTime = (dateTimeString?: string): string => {
+    const formatDateTime = (dateTimeString) => {
         if (!dateTimeString) return "N/A";
         return new Date(dateTimeString).toLocaleString("en-IN");
     };
 
-    // FlightOffer component with typed props and enhanced display
-    const FlightOffer: React.FC<{ offer: FlightOfferData }> = ({ offer }) => {
-        // Convert price to rupees
-        const priceInRupees = convertToRupees(offer.price.total);
+    // FlightOffer component
+    const FlightOffer = ({ offer }) => {
+        // Convert price to rupees if currency is EUR
+        const priceDisplay = offer.price.currency === "EUR"
+            ? `₹${convertToRupees(offer.price.total)} (€${offer.price.total})`
+            : `₹${offer.price.total}`;
 
         return (
             <div className="bg-black border border-white/20 p-4 rounded-md mb-3 text-white">
                 <div className="flex justify-between items-center mb-2">
-                    <span className="text-lg font-medium">
-                        ₹{priceInRupees} <span className="text-xs text-white/70">(€{offer.price.total})</span>
-                    </span>
+                    <span className="text-lg font-medium">{priceDisplay}</span>
                     <span className="text-sm bg-white/10 px-2 py-1 rounded">
-                        {offer.validatingAirlineCodes.join(", ")}
+                        {(offer.validatingAirlineCodes || []).join(", ")}
                     </span>
                 </div>
+
+                {/* Additional flight info */}
+                {offer.reasoning && (
+                    <div className="text-sm text-white/70 mt-2">{offer.reasoning}</div>
+                )}
 
                 <div className="space-y-3 mt-3">
                     {offer.itineraries.map((itinerary, itinIndex) => (
@@ -120,16 +173,38 @@ const FlightFinderChat: React.FC = () => {
                     ))}
                 </div>
 
+                {/* Transit information */}
+                {offer.transitRoutes && (
+                    <div className="mt-2 text-sm text-white/70">{offer.transitRoutes}</div>
+                )}
+
+                {/* Family/solo consideration */}
+                {offer.familySoloConsideration && (
+                    <div className="mt-2 text-sm text-white/70">{offer.familySoloConsideration}</div>
+                )}
+
+                {/* Morning/night comparison */}
+                {offer.morningNightComparison && (
+                    <div className="mt-2 text-sm text-white/70">{offer.morningNightComparison}</div>
+                )}
+
+                {/* Visa information */}
+                {offer.visaInfo && (
+                    <div className="mt-2 text-sm text-white/70">{offer.visaInfo}</div>
+                )}
+
                 <div className="mt-3 pt-2 border-t border-white/10 flex flex-wrap gap-2 text-xs text-white/70">
                     <div className="flex items-center">
                         <Calendar className="w-3 h-3 mr-1" />
                         <span>Last Ticket: {new Date(offer.lastTicketingDate).toLocaleDateString("en-IN")}</span>
                     </div>
 
-                    <div className="flex items-center">
-                        <Luggage className="w-3 h-3 mr-1" />
-                        <span>Bags: {offer.pricingOptions?.includedCheckedBagsOnly ? "Included" : "Not included"}</span>
-                    </div>
+                    {offer.pricingOptions?.includedCheckedBagsOnly !== undefined && (
+                        <div className="flex items-center">
+                            <Luggage className="w-3 h-3 mr-1" />
+                            <span>Bags: {offer.pricingOptions.includedCheckedBagsOnly ? "Included" : "Not included"}</span>
+                        </div>
+                    )}
 
                     <div>
                         <span>Seats: {offer.numberOfBookableSeats}</span>
@@ -145,21 +220,19 @@ const FlightFinderChat: React.FC = () => {
         );
     };
 
-    const generateResponse = async (query: string): Promise<void> => {
+    const generateResponse = async (query) => {
         setIsTyping(true);
         try {
-            // You might need to get this clientId from somewhere - environment variable, config, etc.
-            const clientId = process.env.NEXT_PUBLIC_CLIENT_ID || "your-client-id-here";
+            // Get clientId from environment or use a default
+            const clientId = process.env.NEXT_PUBLIC_CLIENT_ID || "flight-finder-client";
 
-            const response = await fetch("/api/", {
+            const response = await fetch("/api", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     message: query,
                     chatId,
-                    clientId // Added clientId to the request body
+                    clientId
                 }),
             });
 
@@ -169,14 +242,14 @@ const FlightFinderChat: React.FC = () => {
             }
 
             const data = await response.json();
-            let content: string | FlightOfferData | FlightOfferData[] =
-                typeof data.response === "string" ? data.response : data.response;
+            let content = data.response;
 
+            // Limit to 4 options if it's an array
             if (Array.isArray(content)) {
                 content = content.slice(0, 4);
             }
 
-            const newResponse: Message = { role: "assistant", content };
+            const newResponse = { role: "assistant", content };
             setMessages((prev) => [...prev, newResponse]);
         } catch (error) {
             console.error("API Error:", error);
@@ -189,12 +262,12 @@ const FlightFinderChat: React.FC = () => {
         }
     };
 
-    const handleSendMessage = (): void => {
+    const handleSendMessage = () => {
         if (!inputMessage.trim()) return;
-        const newMessage: Message = { role: "user", content: inputMessage };
+        const newMessage = { role: "user", content: inputMessage };
         setMessages((prev) => [...prev, newMessage]);
         setInputMessage("");
-        void generateResponse(inputMessage);
+        generateResponse(inputMessage);
     };
 
     useEffect(() => {
@@ -245,12 +318,20 @@ const FlightFinderChat: React.FC = () => {
                                         </div>
                                     ) : (
                                         <div className="space-y-2">
-                                            {Array.isArray(message.content) ? (
-                                                message.content.map((offer, idx) => (
-                                                    <FlightOffer key={idx} offer={offer} />
-                                                ))
+                                            {typeof message.content === "string" ? (
+                                                <div className={`${message.role === "user" ? "text-right" : "text-left"}`}>
+                                                    <ResponseFormatter response={message.content} />
+                                                </div>
                                             ) : (
-                                                <FlightOffer offer={message.content} />
+                                                <div className="space-y-2">
+                                                    {Array.isArray(message.content) ? (
+                                                        message.content.map((offer, idx) => (
+                                                            <FlightOffer key={idx} offer={offer} />
+                                                        ))
+                                                    ) : (
+                                                        <FlightOffer offer={message.content} />
+                                                    )}
+                                                </div>
                                             )}
                                         </div>
                                     )}
@@ -274,21 +355,17 @@ const FlightFinderChat: React.FC = () => {
                     <div className="flex gap-4">
                         <Input
                             value={inputMessage}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                                setInputMessage(e.target.value)
-                            }
-                            onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) =>
-                                e.key === "Enter" && handleSendMessage()
-                            }
+                            onChange={(e) => setInputMessage(e.target.value)}
+                            onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
                             placeholder="Tell me about your flight plans..."
                             className="bg-transparent border-0 border-b border-white/10 rounded-none
-                text-white placeholder:text-white/30 focus:border-white/30
-                transition-colors font-light tracking-wide"
+                                text-white placeholder:text-white/30 focus:border-white/30
+                                transition-colors font-light tracking-wide"
                         />
                         <Button
                             onClick={handleSendMessage}
                             className="bg-white text-black hover:bg-white/90 rounded-full w-10 h-10 p-0
-                flex items-center justify-center"
+                                flex items-center justify-center"
                         >
                             <SendHorizontal className="w-4 h-4" />
                         </Button>

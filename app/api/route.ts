@@ -1,155 +1,332 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-expect-error
-import Amadeus from 'amadeus';
-import OpenAI from 'openai';
-import { NextResponse, NextRequest } from 'next/server';
-import { createClient } from 'redis';
+import Amadeus from "amadeus";
+import OpenAI from "openai";
+import { NextResponse } from "next/server";
+import { createClient } from "redis";
 
-// Initialize Redis client
-const redisClient = createClient({
-    url: process.env.REDIS_URL,
-});
 
-// Initialize Amadeus with validation
+const redisClient = createClient({ url: process.env.REDIS_URL || "redis://localhost:6379" });
 const amadeus = new Amadeus({
-    clientId: process.env.AMADEUS_CLIENT_ID || (() => { throw new Error('AMADEUS_CLIENT_ID not set'); })(),
-    clientSecret: process.env.AMADEUS_CLIENT_SECRET || (() => { throw new Error('AMADEUS_CLIENT_SECRET not set'); })(),
+    clientId: process.env.AMADEUS_CLIENT_ID,
+    clientSecret: process.env.AMADEUS_CLIENT_SECRET,
 });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-
-
-// Initialize OpenAI with validation
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY || (() => { throw new Error('OPENAI_API_KEY not set'); })(),
-});
-
-redisClient.on('error', (error) => console.error('Redis error:', error));
-
-// Connect to Redis on startup
+redisClient.on("error", (err) => console.error("Redis error:", err));
 (async () => {
     try {
         await redisClient.connect();
-        console.log('Redis connected');
-    } catch (error) {
-        console.error('Redis connection failed:', error);
+        console.log("Redis connected");
+    } catch (err) {
+        console.error("Redis connection failed:", err);
     }
 })();
 
-export async function POST(request: NextRequest) {
+// Utility Functions
+const withRedisRetry = async (fn, maxRetries = 3, delayMs = 500) => {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await fn();
+        } catch (err) {
+            if (i === maxRetries - 1) return null;
+            await new Promise((resolve) => setTimeout(resolve, delayMs * (i + 1)));
+        }
+    }
+    return null;
+};
+
+const formatDate = (date) => date.toISOString().split("T")[0];
+const addDays = (date, days) => {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
+};
+
+const getTotalDuration = (duration) => {
+    const hours = parseInt(duration.match(/(\d+)H/)?.[1] || "0");
+    const minutes = parseInt(duration.match(/(\d+)M/)?.[1] || "0");
+    return hours + minutes / 60;
+};
+
+const isMorningFlight = (departureTime) => {
+    const hour = new Date(departureTime).getUTCHours();
+    return hour >= 5 && hour < 12;
+};
+
+const isNightFlight = (departureTime) => {
+    const hour = new Date(departureTime).getUTCHours();
+    return hour >= 18 || hour < 5;
+};
+
+// Amadeus Functions
+async function getFlightOffers(
+    origin,
+    destination,
+    departureDate,
+    adults,
+    children,
+    infants,
+    returnDate
+) {
+    try {
+        const response = await amadeus.shopping.flightOffersSearch.get({
+            originLocationCode: origin,
+            destinationLocationCode: destination,
+            departureDate,
+            ...(returnDate && { returnDate }),
+            adults: adults.toString(),
+            ...(children && { children: children.toString() }),
+            ...(infants && { infants: infants.toString() }),
+            currencyCode: "INR",
+            max: 5,
+        });
+        return response.data.map((flight) => ({
+            price: { total: flight.price.total, currency: flight.price.currency },
+            itineraries: flight.itineraries,
+            numberOfBookableSeats: flight.numberOfBookableSeats,
+            lastTicketingDate: flight.lastTicketingDate,
+            validatingAirlineCodes: flight.validatingAirlineCodes || [],
+            pricingOptions: flight.pricingOptions || {}
+        }));
+    } catch (err) {
+        if (err.response?.statusCode === 429) {
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            return getFlightOffers(origin, destination, departureDate, adults, children, infants, returnDate);
+        }
+        console.error("Amadeus API error:", err);
+        return [];
+    }
+}
+
+async function fetchAndCacheFlights(
+    origin,
+    destination,
+    date,
+    adults,
+    children,
+    infants,
+    returnDate
+) {
+    const cacheKey = `flight:${origin}:${destination}:${date}:${adults}:${children || 0}:${infants || 0}${returnDate ? `:${returnDate}` : ""}`;
+    const cached = await withRedisRetry(() => redisClient.get(cacheKey));
+    if (cached) return JSON.parse(cached);
+
+    const flights = await getFlightOffers(origin, destination, date, adults, children, infants, returnDate);
+    await withRedisRetry(() => redisClient.set(cacheKey, JSON.stringify(flights), { EX: 3600 }));
+    return flights;
+}
+
+async function getLocationIATA(location) {
+    if (/^[A-Z]{3}$/.test(location)) return location;
+    const cacheKey = `location:iata:${location.toLowerCase()}`;
+    const cachedIATA = await withRedisRetry(() => redisClient.get(cacheKey));
+    if (cachedIATA) return cachedIATA;
+
+    try {
+        let response = await amadeus.referenceData.locations.get({
+            keyword: location,
+            subType: "AIRPORT,CITY",
+        });
+        if (response.data?.length > 0) {
+            const iataCode = response.data[0].iataCode;
+            await withRedisRetry(() => redisClient.set(cacheKey, iataCode, { EX: 86400 }));
+            return iataCode;
+        }
+        return null;
+    } catch (err) {
+        console.error(`Error resolving IATA for ${location}:`, err);
+        return null;
+    }
+}
+
+async function getVisaRequirements(origin, destination, nationality) {
+    if (!nationality) return "Nationality not provided; visa info unavailable.";
+    // Note: This is a placeholder - in production, you would integrate with a visa API
+    return `Visa info for ${nationality} traveling from ${origin} to ${destination} is not directly available via Amadeus. Check with official embassy sources.`;
+}
+
+// OpenAI Functions
+async function generateFlightReasoning(
+    flight,
+    preference,
+    budget,
+    tripDuration
+) {
+    const price = parseFloat(flight.price.total);
+    const duration = getTotalDuration(flight.itineraries[0].duration);
+    const isDirect = flight.itineraries[0].segments.length === 1;
+    let reasoning = `This flight is recommended because it offers `;
+    if (preference === "cheapest" && (!budget || price <= budget)) {
+        reasoning += `a low price (₹${price.toLocaleString()}) within your budget of ₹${budget?.toLocaleString() || "N/A"}`;
+    } else if (preference === "speed" && duration <= 5) {
+        reasoning += `a quick travel time (${duration.toFixed(1)}h)`;
+    } else if (preference === "convenience" && isDirect) {
+        reasoning += `a convenient direct flight`;
+    } else {
+        reasoning += `a good balance of cost (₹${price.toLocaleString()}) and duration (${duration.toFixed(1)}h)`;
+    }
+    if (tripDuration) reasoning += `, fitting well with your ${tripDuration}-day trip`;
+    reasoning += `.`;
+    return reasoning;
+}
+
+async function generateFamilySoloConsideration(
+    flight,
+    adults,
+    children,
+    infants
+) {
+    const seats = flight.numberOfBookableSeats;
+    const totalTravelers = adults + (children || 0) + (infants || 0);
+    if (adults === 1 && !children && !infants) {
+        return "Ideal for solo travelers due to flexibility and availability.";
+    } else if (children || infants) {
+        return seats >= totalTravelers
+            ? `Suitable for families with ${children || 0} children and ${infants || 0} infants; ${seats} seats available.`
+            : `Limited seats (${seats}); may not accommodate all ${totalTravelers} travelers (adults: ${adults}, children: ${children || 0}, infants: ${infants || 0}).`;
+    } else {
+        return `Good for a group of ${adults} adults with ${seats} seats available.`;
+    }
+}
+
+async function generateMorningNightComparison(flight) {
+    const departureTime = flight.itineraries[0].segments[0].departure.at;
+    if (isMorningFlight(departureTime)) {
+        return "Morning flight: Ideal for early arrivals and maximizing daytime at your destination.";
+    } else if (isNightFlight(departureTime)) {
+        return "Night flight: Great for overnight travel, saving daytime for activities or rest.";
+    } else {
+        return "Daytime flight: Balanced option for convenience and comfort.";
+    }
+}
+
+async function generateTransitRoutes(flight) {
+    const segments = flight.itineraries[0].segments;
+    if (segments.length === 1) return "Direct flight: No transits required.";
+    const transitPoints = segments.slice(0, -1).map(s => `${s.arrival.iataCode} (${getTotalDuration(s.duration)}h layover)`);
+    return `Transit route: ${transitPoints.join(" -> ")}. Total duration: ${flight.itineraries[0].duration}.`;
+}
+
+// Process User Input
+async function processUserInput(messages) {
+    const systemPrompt = `
+You are a flight search assistant. Based on the user's latest message:
+1. If they want flights, extract:
+   - baseCity (default: "DEL")
+   - destinationCity (default: "BOM")
+   - travelDate (default: 7 days from April 2025, YYYY-MM-DD)
+   - returnDate (optional, default: null, YYYY-MM-DD)
+   - adults (default: 1)
+   - children (optional, default: 0)
+   - infants (optional, default: 0)
+   - preference (cheapest, speed, convenience, default: balanced)
+   - budget (default: null, in INR)
+   - tripDuration (default: null, in days)
+   - nationality (optional, default: null)
+   Return JSON: {
+     "type": "flight",
+     "baseCity": "DEL",
+     "destinationCity": "BOM",
+     "travelDate": "2025-04-06",
+     "returnDate": null,
+     "adults": 1,
+     "children": 0,
+     "infants": 0,
+     "preference": "cheapest",
+     "budget": 15000,
+     "tripDuration": 5,
+     "nationality": "IN"
+   }
+2. If they want an explanation, return JSON: {"type": "text", "query": "original user message"}
+`;
+    const intentResponse = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "system", content: systemPrompt }, ...messages.map(m => ({
+            role: m.role,
+            content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+        }))],
+        response_format: { type: "json_object" },
+    });
+    const result = JSON.parse(intentResponse.choices[0].message.content || "{}");
+
+    if (result.type === "text") {
+        const explanation = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+                { role: "system", content: "Provide a helpful response or explanation based on the user's query and prior context." },
+                ...messages.map(m => ({ role: m.role, content: typeof m.content === "string" ? m.content : JSON.stringify(m.content) })),
+            ],
+        });
+        return explanation.choices[0].message.content || "I'm not sure how to help with that. Could you clarify?";
+    }
+
+    const { baseCity, destinationCity, travelDate, returnDate, adults, children = 0, infants = 0, preference = "balanced", budget, tripDuration, nationality } = result;
+    const originIATA = await getLocationIATA(baseCity);
+    const destIATA = await getLocationIATA(destinationCity);
+
+    if (!originIATA || !destIATA) {
+        const failedCity = !originIATA ? baseCity : destinationCity;
+        return `Could not find the airport for ${failedCity}. Please try using the IATA code (e.g., "BLR" for Bangalore, "JAI" for Jaipur) or a different city name.`;
+    }
+
+    const flights = await fetchAndCacheFlights(originIATA, destIATA, travelDate, adults, children, infants, returnDate);
+    if (flights.length > 0) {
+        const enhancedFlights = flights
+            .filter(f => !budget || parseFloat(f.price.total) <= budget)
+            .sort((a, b) => {
+                const priceA = parseFloat(a.price.total);
+                const priceB = parseFloat(b.price.total);
+                const durationA = getTotalDuration(a.itineraries[0].duration);
+                const durationB = getTotalDuration(b.itineraries[0].duration);
+                if (preference === "cheapest") return priceA - priceB;
+                if (preference === "speed") return durationA - durationB;
+                if (preference === "convenience") {
+                    const stopsA = a.itineraries[0].segments.length - 1;
+                    const stopsB = b.itineraries[0].segments.length - 1;
+                    return stopsA - stopsB || durationA - durationB;
+                }
+                return priceA - priceB;
+            })
+            .slice(0, 3);
+
+        for (const flight of enhancedFlights) {
+            flight.reasoning = await generateFlightReasoning(flight, preference, budget, tripDuration);
+            flight.familySoloConsideration = await generateFamilySoloConsideration(flight, adults, children, infants);
+            flight.morningNightComparison = await generateMorningNightComparison(flight);
+            flight.visaInfo = await getVisaRequirements(originIATA, destIATA, nationality);
+            flight.transitRoutes = await generateTransitRoutes(flight);
+        }
+        return enhancedFlights;
+    }
+
+    return `No flights found from ${baseCity} to ${destinationCity} on ${travelDate}${returnDate ? ` to ${returnDate}` : ""}. Try adjusting your dates or preferences.`;
+}
+
+// Main API Handler
+export async function POST(request) {
     try {
         const { message, chatId, clientId } = await request.json();
-
-        // Validate basic inputs
-        if (!message) {
-            return NextResponse.json({ error: 'Message is required' }, { status: 400 });
-        }
-        if (!chatId) {
-            return NextResponse.json({ error: 'Chat ID is required' }, { status: 400 });
-        }
-        // Optionally validate clientId if your app needs it
-        if (!clientId) {
-            return NextResponse.json({ error: 'Client ID is required' }, { status: 400 });
+        if (!message || !chatId || !clientId) {
+            return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
 
         const chatKey = `chat:${chatId}`;
-        const conversation = await redisClient.get(chatKey) || '[]';
-        const messages = JSON.parse(conversation || '[]');
-        messages.push({ role: 'user', content: message });
+        const rawMessages = (await withRedisRetry(() => redisClient.get(chatKey))) || "[]";
+        const messages = JSON.parse(rawMessages);
+        messages.push({ role: "user", content: message });
 
-        const systemPrompt = `
-You are a flight finder assistant. From the user's input, identify at least 7 of these 11 key factors:
-- Base City (IATA code, e.g., NYC) || Delhi if not entered
-- Destination City (IATA code, e.g., LAX) || Mumbai if not entered
-- Travel Dates (YYYY-MM-DD) || 2025-04-01 if not entered
-- Number of Adults || 1 if not entered
-- Date Flexibility (±X days)
-- Month Flexibility (±1 month)
-- Budget Constraints
-- Group Type and Composition (e.g., family, solo)
-- Maximum Acceptable Duration || 7 days if not entered
-- Willingness for Self-Transfers (Optional, Ignore if not entered) || NO
-- Transit Country Preferences/Restrictions || ignore if not entered
+        // Process user input
+        const responseData = await processUserInput(messages);
 
-If fewer than 7 factors are detected, ask follow-up questions to gather the missing ones, prioritizing required factors (Base City, Destination City, Travel Dates, Number of Adults). Keep responses concise, under 50 words, and in points. Provide factors in a list format, e.g., "- Base City: NYC".
-        `;
+        // Add assistant response to messages
+        messages.push({ role: "assistant", content: responseData });
+        await withRedisRetry(() => redisClient.set(chatKey, JSON.stringify(messages), { EX: 86400 }));
 
-        const fullContext = [{ role: 'system', content: systemPrompt }, ...messages];
-        const completion = await openai.chat.completions.create({
-            model: 'gpt-4o-mini',
-            messages: fullContext,
-        });
-
-        const responseContent = completion.choices[0].message.content || " ";
-
-        // Parse OpenAI response into factors
-        const extractedFactors: { [key: string]: string } = {};
-        responseContent.split('\n').forEach((line) => {
-            const [key, value] = line.split(':').map((part) => part.trim().replace('- ', ''));
-            if (key && value) extractedFactors[key] = value;
-        });
-
-        const requiredFactors = ['Base City', 'Destination City', 'Travel Dates', 'Number of Adults'];
-        const hasAllRequired = requiredFactors.every((factor) => extractedFactors[factor]);
-
-        if (hasAllRequired) {
-            const payload = {
-                originLocationCode: extractedFactors['Base City'],
-                destinationLocationCode: extractedFactors['Destination City'],
-                departureDate: extractedFactors['Travel Dates'],
-                adults: parseInt(extractedFactors['Number of Adults']) || 1,
-            };
-            const flightData = await getFlightOffers(payload);
-            messages.push({ role: 'assistant', content: JSON.stringify(flightData) });
-            await redisClient.set(chatKey, JSON.stringify(messages));
-            return NextResponse.json({ response: flightData });
-        } else {
-            messages.push({ role: 'assistant', content: responseContent });
-            await redisClient.set(chatKey, JSON.stringify(messages));
-            return NextResponse.json({ response: responseContent });
-        }
-    } catch (error) {
-        console.error('Error:', error);
-        return NextResponse.json(
-            { error: 'An error occurred while processing your request', details: (error as Error).message },
-            { status: 500 }
-        );
-    } finally {
-        // Ensure Redis connection is maintained
-        if (!redisClient.isOpen) {
-            await redisClient.connect();
-        }
+        // Return the response
+        return NextResponse.json({ response: responseData });
+    } catch (err) {
+        console.error("API error:", err);
+        return NextResponse.json({ error: "Internal server error", details: String(err) }, { status: 500 });
     }
 }
-
-async function getFlightOffers(payload: {
-    originLocationCode: string;
-    destinationLocationCode: string;
-    departureDate: string;
-    adults: number;
-}) {
-    try {
-        const { originLocationCode, destinationLocationCode, departureDate, adults } = payload;
-        if (!originLocationCode || !destinationLocationCode || !departureDate || !adults) {
-            throw new Error('Missing required fields in payload');
-        }
-        const response = await amadeus.shopping.flightOffersSearch.get({
-            originLocationCode,
-            destinationLocationCode,
-            departureDate,
-            adults: adults.toString(), // Amadeus expects string
-        });
-
-        console.log('Flight offers response:', response.data);
-        return response.data;
-    } catch (error) {
-        // console.error('Amadeus GET error:', error.response?.data || error.message);
-        console.log(error)
-        throw error;
-    }
-}
-
-// Ensure proper cleanup on server shutdown
-process.on('SIGTERM', async () => {
-    await redisClient.quit();
-    process.exit(0);
-});
