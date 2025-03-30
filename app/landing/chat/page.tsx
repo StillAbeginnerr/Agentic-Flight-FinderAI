@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { SendHorizontal, Bot, User, Calendar, Clock, Luggage } from "lucide-react";
+import { SendHorizontal, Bot, User, Calendar, Clock, Luggage, DollarSign, BarChart2, Award } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -29,6 +29,13 @@ interface PricingOptions {
     fareType?: string[];
 }
 
+interface CostBreakdown {
+    baseFare: number;
+    taxes: number;
+    fees: number;
+    discount?: number;
+}
+
 interface FlightOffer {
     price: {
         currency: string;
@@ -44,6 +51,12 @@ interface FlightOffer {
     familySoloConsideration?: string;
     morningNightComparison?: string;
     visaInfo?: string;
+    costBreakdown?: CostBreakdown;
+    scores?: {
+        cost: number;
+        convenience: number;
+        overall: number;
+    };
 }
 
 interface Message {
@@ -54,6 +67,9 @@ interface Message {
 interface UserPreferences {
     preferredTime?: "morning" | "afternoon" | "evening";
     directFlight?: boolean;
+    maxPrice?: number;
+    preferredAirline?: string;
+    travelClass?: "ECONOMY" | "PREMIUM_ECONOMY" | "BUSINESS" | "FIRST";
 }
 
 // Exchange rate - EUR to INR (as of March 2025, this is an approximation)
@@ -147,41 +163,104 @@ const FlightFinderChat = () => {
         return Math.round(costScore * weightCost + convenienceScore * weightConvenience);
     };
 
-    // FlightOffer component with recommendation score and booking link
+    // Generate cost breakdown for a flight offer
+    const generateCostBreakdown = (totalPrice: number): CostBreakdown => {
+        // This is a simplified example - in a real app, these would come from the API
+        const baseFare = totalPrice * 0.7; // 70% of total is base fare
+        const taxes = totalPrice * 0.2; // 20% is taxes
+        const fees = totalPrice * 0.1; // 10% is fees
+
+        return {
+            baseFare: parseFloat(baseFare.toFixed(2)),
+            taxes: parseFloat(taxes.toFixed(2)),
+            fees: parseFloat(fees.toFixed(2))
+        };
+    };
+
+    // FlightOffer component with recommendation score, cost breakdown, and booking link
     const FlightOfferComponent = ({
                                       offer,
                                       userPreferences,
                                       minPrice,
-                                      maxPrice
+                                      maxPrice,
                                   }: {
         offer: FlightOffer;
         userPreferences: UserPreferences;
         minPrice: number;
         maxPrice: number;
     }) => {
-        // Convert price to rupees if currency is EUR
-        const priceDisplay = offer.price.currency === "EUR"
-            ? `₹${convertToRupees(offer.price.total)} (€${offer.price.total})`
-            : `₹${offer.price.total}`;
+        const [showCostBreakdown, setShowCostBreakdown] = useState(false);
 
-        // Calculate cost score and convenience score
-        const costScore = calculateCostScore(parseFloat(offer.price.total), minPrice, maxPrice);
-        const convenienceScore = calculateConvenienceScore(offer, userPreferences);
-        const overallScore = calculateOverallScore(costScore, convenienceScore);
+        // Convert price to rupees if currency is EUR
+        const priceInNumber = parseFloat(offer.price.total);
+        const priceDisplay =
+            offer.price.currency === "EUR"
+                ? `₹${convertToRupees(offer.price.total)} (€${offer.price.total})`
+                : `₹${offer.price.total}`;
+
+        // Calculate scores if not already provided
+        const costScore = offer.scores?.cost || calculateCostScore(priceInNumber, minPrice, maxPrice);
+        const convenienceScore = offer.scores?.convenience || calculateConvenienceScore(offer, userPreferences);
+        const overallScore = offer.scores?.overall || calculateOverallScore(costScore, convenienceScore);
+
+        // Generate cost breakdown if not already provided
+        const costBreakdown = offer.costBreakdown || generateCostBreakdown(priceInNumber);
 
         return (
             <div className="bg-black border border-white/20 p-4 rounded-md mb-3 text-white">
                 <div className="flex justify-between items-center mb-2">
                     <span className="text-lg font-medium">{priceDisplay}</span>
                     <span className="text-sm bg-white/10 px-2 py-1 rounded">
-            {(offer.validatingAirlineCodes || []).join(", ")}
-          </span>
+                        {(offer.validatingAirlineCodes || []).join(", ")}
+                    </span>
                 </div>
 
                 {/* Recommendation Score */}
-                <div className="mb-2 text-xs text-white/70">
-                    <span>Cost Score: {costScore} | Convenience Score: {convenienceScore} | Overall: {overallScore} / 5</span>
+                <div className="mb-2 flex items-center gap-2">
+                    <Award className="w-4 h-4 text-yellow-400" />
+                    <div className="text-xs text-white/70">
+                        <span>
+                            Cost: {costScore}/5 | Convenience: {convenienceScore}/5 | Overall: {overallScore}/5
+                        </span>
+                    </div>
                 </div>
+
+                {/* Cost Breakdown Toggle Button */}
+                <button
+                    onClick={() => setShowCostBreakdown(!showCostBreakdown)}
+                    className="text-xs flex items-center gap-1 text-white/70 hover:text-white mb-2"
+                >
+                    <DollarSign className="w-3 h-3" />
+                    {showCostBreakdown ? "Hide cost breakdown" : "Show cost breakdown"}
+                </button>
+
+                {/* Cost Breakdown Section */}
+                {showCostBreakdown && (
+                    <div className="bg-white/5 p-2 rounded-md mb-3 text-xs">
+                        <div className="flex justify-between mb-1">
+                            <span>Base Fare:</span>
+                            <span>{offer.price.currency === "EUR" ? `€${costBreakdown.baseFare}` : `₹${costBreakdown.baseFare}`}</span>
+                        </div>
+                        <div className="flex justify-between mb-1">
+                            <span>Taxes:</span>
+                            <span>{offer.price.currency === "EUR" ? `€${costBreakdown.taxes}` : `₹${costBreakdown.taxes}`}</span>
+                        </div>
+                        <div className="flex justify-between mb-1">
+                            <span>Fees:</span>
+                            <span>{offer.price.currency === "EUR" ? `€${costBreakdown.fees}` : `₹${costBreakdown.fees}`}</span>
+                        </div>
+                        {costBreakdown.discount && (
+                            <div className="flex justify-between mb-1 text-green-400">
+                                <span>Discount:</span>
+                                <span>-{offer.price.currency === "EUR" ? `€${costBreakdown.discount}` : `₹${costBreakdown.discount}`}</span>
+                            </div>
+                        )}
+                        <div className="flex justify-between mt-2 pt-2 border-t border-white/10 font-medium">
+                            <span>Total:</span>
+                            <span>{offer.price.currency === "EUR" ? `€${offer.price.total}` : `₹${offer.price.total}`}</span>
+                        </div>
+                    </div>
+                )}
 
                 {/* Additional flight info */}
                 {offer.reasoning && (
@@ -194,15 +273,15 @@ const FlightFinderChat = () => {
                             <div className="flex items-center mb-1">
                                 <Clock className="w-3 h-3 mr-1 text-white/60" />
                                 <span className="text-xs text-white/70">
-                  Duration: {itinerary.duration || "N/A"}
-                </span>
+                                    Duration: {itinerary.duration || "N/A"}
+                                </span>
                             </div>
                             {itinerary.segments.map((segment, segIndex) => (
                                 <div key={segIndex} className="text-sm my-2">
                                     <div className="flex justify-between">
-                    <span className="font-medium">
-                      {segment.departure.iataCode} → {segment.arrival.iataCode}
-                    </span>
+                                        <span className="font-medium">
+                                            {segment.departure.iataCode} → {segment.arrival.iataCode}
+                                        </span>
                                         <span className="text-xs">{segment.carrierCode || ""}</span>
                                     </div>
                                     <div className="text-xs text-white/70 flex justify-between mt-1">
@@ -214,26 +293,6 @@ const FlightFinderChat = () => {
                         </div>
                     ))}
                 </div>
-
-                {/* Transit information */}
-                {offer.transitRoutes && (
-                    <div className="mt-2 text-sm text-white/70">{offer.transitRoutes}</div>
-                )}
-
-                {/* Family/solo consideration */}
-                {offer.familySoloConsideration && (
-                    <div className="mt-2 text-sm text-white/70">{offer.familySoloConsideration}</div>
-                )}
-
-                {/* Morning/night comparison */}
-                {offer.morningNightComparison && (
-                    <div className="mt-2 text-sm text-white/70">{offer.morningNightComparison}</div>
-                )}
-
-                {/* Visa information */}
-                {offer.visaInfo && (
-                    <div className="mt-2 text-sm text-white/70">{offer.visaInfo}</div>
-                )}
 
                 <div className="mt-3 pt-2 border-t border-white/10 flex flex-wrap gap-2 text-xs text-white/70">
                     <div className="flex items-center">
@@ -255,13 +314,61 @@ const FlightFinderChat = () => {
                         </div>
                     )}
                 </div>
+
+                {/* Book Now Button */}
+                <div className="mt-3">
+                    <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white">
+                        Book Now
+                    </Button>
+                </div>
             </div>
         );
+    };
+
+    // Function to create flight offers with cost breakdown and scores
+    const createFlightOffers = (rawOffers: any[], userPreferences: UserPreferences): FlightOffer[] => {
+        // First, extract price information to calculate min and max for scoring
+        const priceValues = rawOffers.map(offer => parseFloat(offer.price.total));
+        const minPrice = Math.min(...priceValues);
+        const maxPrice = Math.max(...priceValues);
+
+        // Process each offer to add cost breakdown and scores
+        return rawOffers.map(offer => {
+            const priceInNumber = parseFloat(offer.price.total);
+
+            // Calculate scores
+            const costScore = calculateCostScore(priceInNumber, minPrice, maxPrice);
+            const convenienceScore = calculateConvenienceScore(offer, userPreferences);
+            const overallScore = calculateOverallScore(costScore, convenienceScore);
+
+            // Generate cost breakdown
+            const costBreakdown = generateCostBreakdown(priceInNumber);
+
+            // Return enhanced offer
+            return {
+                ...offer,
+                costBreakdown,
+                scores: {
+                    cost: costScore,
+                    convenience: convenienceScore,
+                    overall: overallScore
+                }
+            };
+        });
     };
 
     const generateResponse = async (query: string) => {
         setIsTyping(true);
         try {
+            // Parse user preferences from the query if available
+            const userPreferences: UserPreferences = {
+                preferredTime: parsePreferredTime(query),
+                directFlight: parseDirectFlight(query),
+                maxPrice: parseMaxPrice(query),
+                preferredAirline: parsePreferredAirline(query),
+                travelClass: parseTravelClass(query)
+            };
+
             // Get clientId from environment or use a default
             const clientId = process.env.NEXT_PUBLIC_CLIENT_ID || "flight-finder-client";
             const response = await fetch("/api", {
@@ -270,25 +377,27 @@ const FlightFinderChat = () => {
                 body: JSON.stringify({
                     message: query,
                     chatId,
-                    clientId
+                    clientId,
+                    userPreferences // Send preferences to the backend
                 }),
             });
+
             if (!response.ok) {
                 const errorText = await response.text();
                 throw new Error(`Error: ${response.status} - ${errorText}`);
             }
+
             const data = await response.json();
             let content: string | FlightOffer[] = data.response;
 
-            // If content is an array, limit to 4 options
+            // If content is an array, enhance with cost breakdown and scores
             if (Array.isArray(content)) {
-                content = content.slice(0, 4) as FlightOffer[];
+                content = createFlightOffers(content.slice(0, 4), userPreferences);
             }
 
-            // Ensure the role is properly typed
             const newResponse: Message = {
                 role: "assistant" as const,
-                content
+                content,
             };
 
             setMessages((prev) => [...prev, newResponse]);
@@ -298,12 +407,72 @@ const FlightFinderChat = () => {
                 ...prev,
                 {
                     role: "assistant" as const,
-                    content: `Sorry, there was an error processing your request. Please try again.`
+                    content: `Sorry, there was an error processing your request. Please try again.`,
                 },
             ]);
         } finally {
             setIsTyping(false);
         }
+    };
+
+    // Parse the preferred time from the user input (if any)
+    const parsePreferredTime = (query: string): "morning" | "afternoon" | "evening" | undefined => {
+        const timeKeywords = [
+            { term: "morning", regex: /\b(morning|early|dawn|am)\b/i },
+            { term: "afternoon", regex: /\b(afternoon|noon|midday)\b/i },
+            { term: "evening", regex: /\b(evening|night|late|pm)\b/i }
+        ];
+
+        for (let time of timeKeywords) {
+            if (time.regex.test(query)) {
+                return time.term as "morning" | "afternoon" | "evening";
+            }
+        }
+        return undefined;
+    };
+
+    // Parse direct flight preference from user input (if any)
+    const parseDirectFlight = (query: string): boolean | undefined => {
+        if (/\b(direct|non-stop|nonstop|no stop|no connection)\b/i.test(query)) {
+            return true;
+        }
+        if (/\b(layover|connection|connecting|indirect)\b/i.test(query)) {
+            return false;
+        }
+        return undefined;
+    };
+
+    // Parse max price from user input (if any)
+    const parseMaxPrice = (query: string): number | undefined => {
+        const priceMatch = query.match(/\b(under|below|max|maximum|less than|up to)\s*[$₹€]?\s*(\d+(?:,\d+)*(?:\.\d+)?)\b/i);
+        if (priceMatch && priceMatch[2]) {
+            return parseFloat(priceMatch[2].replace(/,/g, ''));
+        }
+        return undefined;
+    };
+
+    // Parse preferred airline from user input (if any)
+    const parsePreferredAirline = (query: string): string | undefined => {
+        const airlines = [
+            "Air India", "IndiGo", "SpiceJet", "Vistara", "GoAir", "AirAsia",
+            "Lufthansa", "Emirates", "Qatar Airways", "British Airways", "Singapore Airlines"
+        ];
+
+        for (const airline of airlines) {
+            if (query.toLowerCase().includes(airline.toLowerCase())) {
+                return airline;
+            }
+        }
+        return undefined;
+    };
+
+    // Parse travel class from user input (if any)
+    const parseTravelClass = (query: string): "ECONOMY" | "PREMIUM_ECONOMY" | "BUSINESS" | "FIRST" | undefined => {
+        if (/\b(economy|coach)\b/i.test(query)) return "ECONOMY";
+        if (/\b(premium economy|premium)\b/i.test(query)) return "PREMIUM_ECONOMY";
+        if (/\b(business|business class)\b/i.test(query)) return "BUSINESS";
+        if (/\b(first|first class)\b/i.test(query)) return "FIRST";
+        return undefined;
     };
 
     const handleSendMessage = () => {
@@ -364,18 +533,20 @@ const FlightFinderChat = () => {
                                             {message.content}
                                         </div>
                                     ) : (
-                                        <div className="space-y-2">
+                                        <div className="space-y-2 w-full">
                                             {Array.isArray(message.content) && message.content.map((offer, idx) => {
                                                 // Determine min and max prices for cost scoring
                                                 const prices = message.content as FlightOffer[];
                                                 const priceValues = prices.map(f => parseFloat(f.price.total));
                                                 const minPrice = Math.min(...priceValues);
                                                 const maxPrice = Math.max(...priceValues);
-                                                // For demonstration, here we use hardcoded user preferences.
+
+                                                // Extract user preferences from the offer's scores
                                                 const userPreferences: UserPreferences = {
-                                                    preferredTime: "morning", // or "afternoon", "evening"
-                                                    directFlight: true,
+                                                    preferredTime: parsePreferredTime(messages.find(m => m.role === "user")?.content as string || ""),
+                                                    directFlight: parseDirectFlight(messages.find(m => m.role === "user")?.content as string || ""),
                                                 };
+
                                                 return (
                                                     <FlightOfferComponent
                                                         key={idx}
