@@ -36,7 +36,7 @@ interface CostBreakdown {
     discount?: number;
 }
 
-interface FlightOffer {
+export interface FlightOffer {
     price: {
         currency: string;
         total: string;
@@ -57,11 +57,14 @@ interface FlightOffer {
         convenience: number;
         overall: number;
     };
+    // New optional busyness info attached from the backend.
+    busynessInfo?: any;
 }
 
 interface Message {
     role: "user" | "assistant";
-    content: string | FlightOffer[];
+    // The assistant response can be a string or an object containing flights and period info.
+    content: string | { flights: FlightOffer[]; busiestTravelingPeriod: any };
 }
 
 interface UserPreferences {
@@ -80,7 +83,8 @@ const FlightFinderChat = () => {
     const [messages, setMessages] = useState<Message[]>([
         {
             role: "assistant",
-            content: "I'm here to help with your flight plans. Tell me your departure city, destination, dates, and any other preferences you have!",
+            content:
+                "I'm here to help with your flight plans. Tell me your departure city, destination, dates, and any other preferences you have!",
         },
     ]);
     const [inputMessage, setInputMessage] = useState("");
@@ -130,18 +134,18 @@ const FlightFinderChat = () => {
         if (userPreferences.preferredTime) {
             const flightHour = new Date(flight.itineraries[0].segments[0].departure.at).getHours();
             if (userPreferences.preferredTime === "morning") {
-                score += (flightHour >= 6 && flightHour <= 10) ? 5 : 3;
+                score += flightHour >= 6 && flightHour <= 10 ? 5 : 3;
             } else if (userPreferences.preferredTime === "afternoon") {
-                score += (flightHour >= 12 && flightHour < 16) ? 5 : 3;
+                score += flightHour >= 12 && flightHour < 16 ? 5 : 3;
             } else if (userPreferences.preferredTime === "evening") {
-                score += (flightHour >= 17 && flightHour < 21) ? 5 : 3;
+                score += flightHour >= 17 && flightHour < 21 ? 5 : 3;
             }
             factors++;
         }
 
         // Example factor: Direct Flight preference
         if (userPreferences.directFlight !== undefined) {
-            score += (userPreferences.directFlight && flight.itineraries[0].segments.length === 1) ? 5 : 2;
+            score += userPreferences.directFlight && flight.itineraries[0].segments.length === 1 ? 5 : 2;
             factors++;
         }
 
@@ -159,7 +163,12 @@ const FlightFinderChat = () => {
     };
 
     // Calculate overall recommendation score as a weighted average
-    const calculateOverallScore = (costScore: number, convenienceScore: number, weightCost = 0.5, weightConvenience = 0.5) => {
+    const calculateOverallScore = (
+        costScore: number,
+        convenienceScore: number,
+        weightCost = 0.5,
+        weightConvenience = 0.5
+    ) => {
         return Math.round(costScore * weightCost + convenienceScore * weightConvenience);
     };
 
@@ -173,7 +182,7 @@ const FlightFinderChat = () => {
         return {
             baseFare: parseFloat(baseFare.toFixed(2)),
             taxes: parseFloat(taxes.toFixed(2)),
-            fees: parseFloat(fees.toFixed(2))
+            fees: parseFloat(fees.toFixed(2)),
         };
     };
 
@@ -200,7 +209,8 @@ const FlightFinderChat = () => {
 
         // Calculate scores if not already provided
         const costScore = offer.scores?.cost || calculateCostScore(priceInNumber, minPrice, maxPrice);
-        const convenienceScore = offer.scores?.convenience || calculateConvenienceScore(offer, userPreferences);
+        const convenienceScore =
+            offer.scores?.convenience || calculateConvenienceScore(offer, userPreferences);
         const overallScore = offer.scores?.overall || calculateOverallScore(costScore, convenienceScore);
 
         // Generate cost breakdown if not already provided
@@ -211,17 +221,17 @@ const FlightFinderChat = () => {
                 <div className="flex justify-between items-center mb-2">
                     <span className="text-lg font-medium">{priceDisplay}</span>
                     <span className="text-sm bg-white/10 px-2 py-1 rounded">
-                        {(offer.validatingAirlineCodes || []).join(", ")}
-                    </span>
+            {(offer.validatingAirlineCodes || []).join(", ")}
+          </span>
                 </div>
 
                 {/* Recommendation Score */}
                 <div className="mb-2 flex items-center gap-2">
                     <Award className="w-4 h-4 text-yellow-400" />
                     <div className="text-xs text-white/70">
-                        <span>
-                            Cost: {costScore}/5 | Convenience: {convenienceScore}/5 | Overall: {overallScore}/5
-                        </span>
+            <span>
+              Cost: {costScore}/5 | Convenience: {convenienceScore}/5 | Overall: {overallScore}/5
+            </span>
                     </div>
                 </div>
 
@@ -239,33 +249,41 @@ const FlightFinderChat = () => {
                     <div className="bg-white/5 p-2 rounded-md mb-3 text-xs">
                         <div className="flex justify-between mb-1">
                             <span>Base Fare:</span>
-                            <span>{offer.price.currency === "EUR" ? `€${costBreakdown.baseFare}` : `₹${costBreakdown.baseFare}`}</span>
+                            <span>
+                {offer.price.currency === "EUR" ? `€${costBreakdown.baseFare}` : `₹${costBreakdown.baseFare}`}
+              </span>
                         </div>
                         <div className="flex justify-between mb-1">
                             <span>Taxes:</span>
-                            <span>{offer.price.currency === "EUR" ? `€${costBreakdown.taxes}` : `₹${costBreakdown.taxes}`}</span>
+                            <span>
+                {offer.price.currency === "EUR" ? `€${costBreakdown.taxes}` : `₹${costBreakdown.taxes}`}
+              </span>
                         </div>
                         <div className="flex justify-between mb-1">
                             <span>Airport Development Fees:</span>
-                            <span>{offer.price.currency === "EUR" ? `€${costBreakdown.fees}` : `₹${costBreakdown.fees}`}</span>
+                            <span>
+                {offer.price.currency === "EUR" ? `€${costBreakdown.fees}` : `₹${costBreakdown.fees}`}
+              </span>
                         </div>
                         {costBreakdown.discount && (
                             <div className="flex justify-between mb-1 text-green-400">
                                 <span>Discount:</span>
-                                <span>-{offer.price.currency === "EUR" ? `€${costBreakdown.discount}` : `₹${costBreakdown.discount}`}</span>
+                                <span>
+                  -{offer.price.currency === "EUR" ? `€${costBreakdown.discount}` : `₹${costBreakdown.discount}`}
+                </span>
                             </div>
                         )}
                         <div className="flex justify-between mt-2 pt-2 border-t border-white/10 font-medium">
                             <span>Total:</span>
-                            <span>{offer.price.currency === "EUR" ? `€${offer.price.total}` : `₹${offer.price.total}`}</span>
+                            <span>
+                {offer.price.currency === "EUR" ? `€${offer.price.total}` : `₹${offer.price.total}`}
+              </span>
                         </div>
                     </div>
                 )}
 
                 {/* Additional flight info */}
-                {offer.reasoning && (
-                    <div className="text-sm text-white/70 mt-2">{offer.reasoning}</div>
-                )}
+                {offer.reasoning && <div className="text-sm text-white/70 mt-2">{offer.reasoning}</div>}
 
                 <div className="space-y-3 mt-3">
                     {offer.itineraries.map((itinerary, itinIndex) => (
@@ -273,15 +291,15 @@ const FlightFinderChat = () => {
                             <div className="flex items-center mb-1">
                                 <Clock className="w-3 h-3 mr-1 text-white/60" />
                                 <span className="text-xs text-white/70">
-                                    Duration: {itinerary.duration || "N/A"}
-                                </span>
+                  Duration: {itinerary.duration || "N/A"}
+                </span>
                             </div>
                             {itinerary.segments.map((segment, segIndex) => (
                                 <div key={segIndex} className="text-sm my-2">
                                     <div className="flex justify-between">
-                                        <span className="font-medium">
-                                            {segment.departure.iataCode} → {segment.arrival.iataCode}
-                                        </span>
+                    <span className="font-medium">
+                      {segment.departure.iataCode} → {segment.arrival.iataCode}
+                    </span>
                                         <span className="text-xs">{segment.carrierCode || ""}</span>
                                     </div>
                                     <div className="text-xs text-white/70 flex justify-between mt-1">
@@ -297,12 +315,16 @@ const FlightFinderChat = () => {
                 <div className="mt-3 pt-2 border-t border-white/10 flex flex-wrap gap-2 text-xs text-white/70">
                     <div className="flex items-center">
                         <Calendar className="w-3 h-3 mr-1" />
-                        <span>Last Ticket: {new Date(offer.lastTicketingDate).toLocaleDateString("en-IN")}</span>
+                        <span>
+              Last Ticket: {new Date(offer.lastTicketingDate).toLocaleDateString("en-IN")}
+            </span>
                     </div>
                     {offer.pricingOptions?.includedCheckedBagsOnly !== undefined && (
                         <div className="flex items-center">
                             <Luggage className="w-3 h-3 mr-1" />
-                            <span>Bags: {offer.pricingOptions.includedCheckedBagsOnly ? "Included" : "Not included"}</span>
+                            <span>
+                Bags: {offer.pricingOptions.includedCheckedBagsOnly ? "Included" : "Not included"}
+              </span>
                         </div>
                     )}
                     <div>
@@ -325,15 +347,37 @@ const FlightFinderChat = () => {
         );
     };
 
+    // Component to display busyness info from the backend
+    const BusynessInfo = ({ info }: { info: any }) => {
+        if (!info) return null;
+        return (
+            <div className="bg-blue-900 p-4 rounded-md mb-4 text-white">
+                <h3 className="font-medium mb-2">Busiest Traveling Period Info</h3>
+                {/* Display key info from the busyness info object */}
+                <p>
+                    <strong>Period:</strong> {info.period || "N/A"}
+                </p>
+                <p>
+                    <strong>Rating:</strong> {info.rating || "N/A"}
+                </p>
+                {info.details && (
+                    <p>
+                        <strong>Details:</strong> {info.details}
+                    </p>
+                )}
+            </div>
+        );
+    };
+
     // Function to create flight offers with cost breakdown and scores
     const createFlightOffers = (rawOffers: any[], userPreferences: UserPreferences): FlightOffer[] => {
         // First, extract price information to calculate min and max for scoring
-        const priceValues = rawOffers.map(offer => parseFloat(offer.price.total));
+        const priceValues = rawOffers.map((offer) => parseFloat(offer.price.total));
         const minPrice = Math.min(...priceValues);
         const maxPrice = Math.max(...priceValues);
 
         // Process each offer to add cost breakdown and scores
-        return rawOffers.map(offer => {
+        return rawOffers.map((offer) => {
             const priceInNumber = parseFloat(offer.price.total);
 
             // Calculate scores
@@ -351,8 +395,8 @@ const FlightFinderChat = () => {
                 scores: {
                     cost: costScore,
                     convenience: convenienceScore,
-                    overall: overallScore
-                }
+                    overall: overallScore,
+                },
             };
         });
     };
@@ -366,7 +410,7 @@ const FlightFinderChat = () => {
                 directFlight: parseDirectFlight(query),
                 maxPrice: parseMaxPrice(query),
                 preferredAirline: parsePreferredAirline(query),
-                travelClass: parseTravelClass(query)
+                travelClass: parseTravelClass(query),
             };
 
             // Get clientId from environment or use a default
@@ -378,7 +422,7 @@ const FlightFinderChat = () => {
                     message: query,
                     chatId,
                     clientId,
-                    userPreferences // Send preferences to the backend
+                    userPreferences, // Send preferences to the backend
                 }),
             });
 
@@ -388,15 +432,18 @@ const FlightFinderChat = () => {
             }
 
             const data = await response.json();
-            let content: string | FlightOffer[] = data.response;
+            let content: string | { flights: FlightOffer[]; busiestTravelingPeriod: any } = data.response;
 
-            // If content is an array, enhance with cost breakdown and scores
-            if (Array.isArray(content)) {
+            // If the response is an object with flight offers, process them.
+            if (typeof content === "object" && "flights" in content) {
+                content.flights = createFlightOffers(content.flights.slice(0, 4), userPreferences);
+            } else if (Array.isArray(content)) {
+                // Fallback if response is just an array.
                 content = createFlightOffers(content.slice(0, 4), userPreferences);
             }
 
             const newResponse: Message = {
-                role: "assistant" as const,
+                role: "assistant",
                 content,
             };
 
@@ -406,7 +453,7 @@ const FlightFinderChat = () => {
             setMessages((prev) => [
                 ...prev,
                 {
-                    role: "assistant" as const,
+                    role: "assistant",
                     content: `Sorry, there was an error processing your request. Please try again.`,
                 },
             ]);
@@ -420,7 +467,7 @@ const FlightFinderChat = () => {
         const timeKeywords = [
             { term: "morning", regex: /\b(morning|early|dawn|am)\b/i },
             { term: "afternoon", regex: /\b(afternoon|noon|midday)\b/i },
-            { term: "evening", regex: /\b(evening|night|late|pm)\b/i }
+            { term: "evening", regex: /\b(evening|night|late|pm)\b/i },
         ];
 
         for (let time of timeKeywords) {
@@ -444,9 +491,11 @@ const FlightFinderChat = () => {
 
     // Parse max price from user input (if any)
     const parseMaxPrice = (query: string): number | undefined => {
-        const priceMatch = query.match(/\b(under|below|max|maximum|less than|up to)\s*[$₹€]?\s*(\d+(?:,\d+)*(?:\.\d+)?)\b/i);
+        const priceMatch = query.match(
+            /\b(under|below|max|maximum|less than|up to)\s*[$₹€]?\s*(\d+(?:,\d+)*(?:\.\d+)?)\b/i
+        );
         if (priceMatch && priceMatch[2]) {
-            return parseFloat(priceMatch[2].replace(/,/g, ''));
+            return parseFloat(priceMatch[2].replace(/,/g, ""));
         }
         return undefined;
     };
@@ -454,8 +503,17 @@ const FlightFinderChat = () => {
     // Parse preferred airline from user input (if any)
     const parsePreferredAirline = (query: string): string | undefined => {
         const airlines = [
-            "Air India", "IndiGo", "SpiceJet", "Vistara", "GoAir", "AirAsia",
-            "Lufthansa", "Emirates", "Qatar Airways", "British Airways", "Singapore Airlines"
+            "Air India",
+            "IndiGo",
+            "SpiceJet",
+            "Vistara",
+            "GoAir",
+            "AirAsia",
+            "Lufthansa",
+            "Emirates",
+            "Qatar Airways",
+            "British Airways",
+            "Singapore Airlines",
         ];
 
         for (const airline of airlines) {
@@ -467,7 +525,9 @@ const FlightFinderChat = () => {
     };
 
     // Parse travel class from user input (if any)
-    const parseTravelClass = (query: string): "ECONOMY" | "PREMIUM_ECONOMY" | "BUSINESS" | "FIRST" | undefined => {
+    const parseTravelClass = (
+        query: string
+    ): "ECONOMY" | "PREMIUM_ECONOMY" | "BUSINESS" | "FIRST" | undefined => {
         if (/\b(economy|coach)\b/i.test(query)) return "ECONOMY";
         if (/\b(premium economy|premium)\b/i.test(query)) return "PREMIUM_ECONOMY";
         if (/\b(business|business class)\b/i.test(query)) return "BUSINESS";
@@ -479,7 +539,7 @@ const FlightFinderChat = () => {
         if (!inputMessage.trim()) return;
         const newMessage: Message = {
             role: "user",
-            content: inputMessage
+            content: inputMessage,
         };
         setMessages((prev) => [...prev, newMessage]);
         setInputMessage("");
@@ -547,22 +607,29 @@ const FlightFinderChat = () => {
                                         </div>
                                     ) : (
                                         <div className="space-y-2 w-full">
-                                            {Array.isArray(message.content) &&
-                                                message.content.map((offer, idx) => {
+                                            {/* If the response contains busyness info, render it */}
+                                            {"flights" in message.content &&
+                                                message.content.busiestTravelingPeriod && (
+                                                    <BusynessInfo info={message.content.busiestTravelingPeriod[0]} />
+                                                )}
+                                            {Array.isArray(message.content.flights) &&
+                                                message.content.flights.map((offer, idx) => {
                                                     // Determine min and max prices for cost scoring
-                                                    const prices = message.content as FlightOffer[];
+                                                    const prices = message.content.flights as FlightOffer[];
                                                     const priceValues = prices.map((f) => parseFloat(f.price.total));
                                                     const minPrice = Math.min(...priceValues);
                                                     const maxPrice = Math.max(...priceValues);
 
                                                     // Extract user preferences from the offer's scores
                                                     const userPreferences: UserPreferences = {
-                                                        preferredTime: parsePreferredTime(
-                                                            messages.find((m) => m.role === "user")?.content as string || ""
-                                                        ),
-                                                        directFlight: parseDirectFlight(
-                                                            messages.find((m) => m.role === "user")?.content as string || ""
-                                                        ),
+                                                        preferredTime:
+                                                            parsePreferredTime(
+                                                                messages.find((m) => m.role === "user")?.content as string || ""
+                                                            ) || undefined,
+                                                        directFlight:
+                                                            parseDirectFlight(
+                                                                messages.find((m) => m.role === "user")?.content as string || ""
+                                                            ) || undefined,
                                                     };
 
                                                     return (
@@ -577,7 +644,6 @@ const FlightFinderChat = () => {
                                                 })}
                                         </div>
                                     )}
-
                                 </div>
                             </div>
                         ))}
@@ -601,14 +667,11 @@ const FlightFinderChat = () => {
                             onChange={(e) => setInputMessage(e.target.value)}
                             onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
                             placeholder="Tell me about your flight plans..."
-                            className="bg-transparent border-0 border-b border-white/10 rounded-none
-                text-white placeholder:text-white/30 focus:border-white/30
-                transition-colors font-light tracking-wide"
+                            className="bg-transparent border-0 border-b border-white/10 rounded-none text-white placeholder:text-white/30 focus:border-white/30 transition-colors font-light tracking-wide"
                         />
                         <Button
                             onClick={handleSendMessage}
-                            className="bg-white text-black hover:bg-white/90 rounded-full w-10 h-10 p-0
-                flex items-center justify-center"
+                            className="bg-white text-black hover:bg-white/90 rounded-full w-10 h-10 p-0 flex items-center justify-center"
                         >
                             <SendHorizontal className="w-4 h-4" />
                         </Button>

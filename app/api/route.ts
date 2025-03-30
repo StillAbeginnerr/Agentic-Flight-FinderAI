@@ -42,13 +42,6 @@ const withRedisRetry = async <T>(
     return null;
 };
 
-// const formatDate = (date) => date.toISOString().split("T")[0];
-// const addDays = (date, days) => {
-//     const result = new Date(date);
-//     result.setDate(result.getDate() + days);
-//     return result;
-// };
-
 const getTotalDuration = (duration: string) => {
     const hours = parseInt(duration.match(/(\d+)H/)?.[1] || "0");
     const minutes = parseInt(duration.match(/(\d+)M/)?.[1] || "0");
@@ -76,8 +69,8 @@ const computeLayoverDuration = (flight: any) => {
     if (flight.itineraries[0].segments.length > 1) {
         let totalLayover = 0;
         for (let i = 1; i < flight.itineraries[0].segments.length; i++) {
-            const prevArrival : any = new Date(flight.itineraries[0].segments[i - 1].arrival.at);
-            const currDeparture : any = new Date(flight.itineraries[0].segments[i].departure.at);
+            const prevArrival: any = new Date(flight.itineraries[0].segments[i - 1].arrival.at);
+            const currDeparture: any = new Date(flight.itineraries[0].segments[i].departure.at);
             totalLayover += (currDeparture - prevArrival) / (1000 * 60 * 60);
         }
         return totalLayover;
@@ -145,6 +138,21 @@ async function getTavilyBookingLink(flight: any) {
     } catch (error) {
         console.error("Error fetching Tavily booking link:", error);
         return "";
+    }
+}
+
+// New: Busiest Traveling Period Function using Amadeus Market Insights API
+async function getBusiestTravelingPeriod(originCityCode: string, destinationCityCode: string) {
+    try {
+        const response = await amadeus.analytics.flight.busiestTravelingPeriod.get({
+            originCityCode,
+            destinationCityCode,
+        });
+        // Return the busiest period info (e.g. period and rating)
+        return response.data;
+    } catch (error) {
+        console.error("Error fetching busiest traveling period:", error);
+        return null;
     }
 }
 
@@ -242,18 +250,18 @@ async function generateFlightReasoning(
     const price = parseFloat(flight.price.total);
     const duration = getTotalDuration(flight.itineraries[0].duration);
     const isDirect = flight.itineraries[0].segments.length === 1;
-    let reasoning = `This flight is recommended because it offers `;
+    let reasoning = "This flight is recommended because it offers ";
     if (preference === "cheapest" && (!budget || price <= budget)) {
         reasoning += `a low price (₹${price.toLocaleString()}) within your budget of ₹${budget?.toLocaleString() || "N/A"}`;
     } else if (preference === "speed" && duration <= 5) {
         reasoning += `a quick travel time (${duration.toFixed(1)}h)`;
     } else if (preference === "convenience" && isDirect) {
-        reasoning += `a convenient direct flight`;
+        reasoning += "a convenient direct flight";
     } else {
         reasoning += `a good balance of cost (₹${price.toLocaleString()}) and duration (${duration.toFixed(1)}h)`;
     }
     if (tripDuration) reasoning += `, fitting well with your ${tripDuration}-day trip`;
-    reasoning += `.`;
+    reasoning += ".";
     return reasoning;
 }
 
@@ -296,36 +304,36 @@ async function generateTransitRoutes(flight: any) {
 
 // Process User Input
 async function processUserInput(messages: any[]) {
-    const systemPrompt = `
-You are a flight search assistant. Based on the user's latest message:
+    const systemPrompt =
+        `You are a flight search assistant. Based on the user's latest message:
 1. If they want flights, extract:
-   - baseCity (default: "DEL")
-   - destinationCity (default: "BOM")
-   - travelDate (default: 7 days from April 2025, YYYY-MM-DD)
-   - returnDate (optional, default: null, YYYY-MM-DD)
-   - adults (default: 1)
-   - children (optional, default: 0)
-   - infants (optional, default: 0)
-   - preference (cheapest, speed, convenience, default: balanced)
-   - budget (default: null, in INR)
-   - tripDuration (default: null, in days)
-   - nationality (optional, default: null)
-   Return JSON: {
-     "type": "flight",
-     "baseCity": "DEL",
-     "destinationCity": "BOM",
-     "travelDate": "2025-04-06",
-     "returnDate": null,
-     "adults": 1,
-     "children": 0,
-     "infants": 0,
-     "preference": "cheapest",
-     "budget": 15000,
-     "tripDuration": 5,
-     "nationality": "IN"
-   }
+- baseCity (default: "DEL")
+- destinationCity (default: "BOM")
+- travelDate (default: 7 days from April 2025, YYYY-MM-DD)
+- returnDate (optional, default: null, YYYY-MM-DD)
+- adults (default: 1)
+- children (optional, default: 0)
+- infants (optional, default: 0)
+- preference (cheapest, speed, convenience, default: balanced)
+- budget (default: null, in INR)
+- tripDuration (default: null, in days)
+- nationality (optional, default: null)
+Return JSON: {
+  "type": "flight",
+  "baseCity": "DEL",
+  "destinationCity": "BOM",
+  "travelDate": "2025-04-06",
+  "returnDate": null,
+  "adults": 1,
+  "children": 0,
+  "infants": 0,
+  "preference": "cheapest",
+  "budget": 15000,
+  "tripDuration": 5,
+  "nationality": "IN"
+}
 2. If they want an explanation, return JSON: {"type": "text", "query": "original user message"}
-`;
+;`;
     const intentResponse = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [{ role: "system", content: systemPrompt }, ...messages.map((m: any) => ({
@@ -356,7 +364,12 @@ You are a flight search assistant. Based on the user's latest message:
         return `Could not find the airport for ${failedCity}. Please try using the IATA code or a different city name.`;
     }
 
+    // Fetch flight offers and cache them
     const flights = await fetchAndCacheFlights(originIATA, destIATA, travelDate, adults, children, infants, returnDate);
+
+    // Fetch busiest traveling period information for added comfort insights.
+    const busiestPeriodData = await getBusiestTravelingPeriod(originIATA, destIATA);
+
     if (flights.length > 0) {
         const prices = flights.map((f: any) => parseFloat(f.price.total));
         const minPrice = Math.min(...prices);
@@ -395,8 +408,17 @@ You are a flight search assistant. Based on the user's latest message:
             flight.recommendationScore = calculateOverallScore(costScore, convenienceScore);
             // Fetch the booking link from Tavily via web search API
             flight.tavilyBookingLink = await getTavilyBookingLink(flight);
+            // Attach busyness info (if available) to each flight for comfort-related insights.
+            if (busiestPeriodData && busiestPeriodData.length > 0) {
+                // For example, compare travelDate with the busiest period; here we simply attach the busiest period info.
+                flight.busynessInfo = busiestPeriodData[0];
+            }
         }
-        return enhancedFlights;
+        // Return both the flight offers and overall busiest period info
+        return {
+            flights: enhancedFlights,
+            busiestTravelingPeriod: busiestPeriodData,
+        };
     }
     return `No flights found from ${baseCity} to ${destinationCity} on ${travelDate}${returnDate ? ` to ${returnDate}` : ""}. Try adjusting your dates or preferences.`;
 }
