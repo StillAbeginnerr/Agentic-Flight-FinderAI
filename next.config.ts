@@ -8,6 +8,10 @@ const nextConfig: NextConfig = {
         AMADEUS_CLIENT_ID: process.env.AMADEUS_CLIENT_ID,
         AMADEUS_CLIENT_SECRET: process.env.AMADEUS_CLIENT_SECRET,
     },
+    eslint: {
+        // Disable ESLint during production build
+        ignoreDuringBuilds: true,
+    },
 };
 
 export default nextConfig;

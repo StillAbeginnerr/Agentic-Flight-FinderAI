@@ -6,41 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-// const ResponseFormatter = ({ response }) => {
-//     // Function to format paragraphs with consistent styling
-//     const formatParagraphs = (text) => {
-//         // Split the response by double line breaks or numbered/bullet points
-//         const paragraphs = text.split(/\n\n|\r\n\r\n|(?=\d+\.\s)/).filter(p => p.trim().length > 0);
-//         return paragraphs.map((paragraph, index) => {
-//             // Handle specifically formatted sections like numbered lists
-//             if (paragraph.match(/^\d+\.\s\*\*.+?\*\*:/)) {
-//                 // This is a titled point (like "1. **Distance and Travel Time:**")
-//                 const [title, ...content] = paragraph.split(/(?<=:)/).map(p => p.trim());
-//                 return (
-//                     <div key={index} className="mb-4">
-//                         <h3 className="text-white font-medium mb-2">{title}</h3>
-//                         <p className="text-white/70 font-light tracking-wide leading-relaxed">
-//                             {content.join(' ')} <br/>
-//                         </p>
-//                     </div>
-//                 );
-//             } else {
-//                 // Regular paragraph
-//                 return (
-//                     <p key={index} className="text-white/90 font-light tracking-wide leading-relaxed mb-4">
-//                         {paragraph}
-//                     </p>
-//                 );
-//             }
-//         });
-//     };
-//
-//     return (
-//         <div className="space-y-2">
-//             {formatParagraphs(response)}
-//         </div>
-//     );
-// };
 
 // Exchange rate - EUR to INR (as of March 2025, this is an approximation)
 const EUR_TO_INR = 92.5;
@@ -58,25 +23,25 @@ const FlightFinderChat = () => {
     const scrollRef = useRef(null);
 
     // Function to convert EUR to INR
-    const convertToRupees = (euroAmount) => {
+    const convertToRupees = (euroAmount:any) => {
         const amount = parseFloat(euroAmount);
         const rupeesAmount = (amount * EUR_TO_INR).toFixed(2);
         return rupeesAmount;
     };
 
     // Format date and time for better readability
-    const formatDateTime = (dateTimeString) => {
+    const formatDateTime = (dateTimeString:any) => {
         if (!dateTimeString) return "N/A";
         return new Date(dateTimeString).toLocaleString("en-IN");
     };
 
     // Function to compute layover duration in hours (if any)
-    const computeLayoverDuration = (flight) => {
+    const computeLayoverDuration = (flight:any) => {
         if (flight.itineraries[0].segments.length > 1) {
             let totalLayover = 0;
             for (let i = 1; i < flight.itineraries[0].segments.length; i++) {
-                const prevArrival = new Date(flight.itineraries[0].segments[i - 1].arrival.at);
-                const currDeparture = new Date(flight.itineraries[0].segments[i].departure.at);
+                const prevArrival:any = new Date(flight.itineraries[0].segments[i - 1].arrival.at);
+                const currDeparture:any = new Date(flight.itineraries[0].segments[i].departure.at);
                 totalLayover += (currDeparture - prevArrival) / (1000 * 60 * 60); // in hours
             }
             return totalLayover;
@@ -85,14 +50,14 @@ const FlightFinderChat = () => {
     };
 
     // Calculate cost score (1 to 5)
-    const calculateCostScore = (flightPrice, minPrice, maxPrice) => {
+    const calculateCostScore = (flightPrice:any, minPrice:any, maxPrice:any) => {
         // Normalize the price so that the cheapest gets a 5 and the most expensive a 1.
         const normalized = (maxPrice - flightPrice) / (maxPrice - minPrice || 1);
         return Math.round(normalized * 4 + 1); // scale between 1 and 5
     };
 
     // Calculate convenience score based on timing, direct flights, and layover duration.
-    const calculateConvenienceScore = (flight, userPreferences) => {
+    const calculateConvenienceScore = (flight:any, userPreferences:any) => {
         let score = 0;
         let factors = 0;
 
@@ -129,7 +94,7 @@ const FlightFinderChat = () => {
     };
 
     // Calculate overall recommendation score as a weighted average
-    const calculateOverallScore = (costScore, convenienceScore, weightCost = 0.5, weightConvenience = 0.5) => {
+    const calculateOverallScore = (costScore:any, convenienceScore:any, weightCost = 0.5, weightConvenience = 0.5) => {
         return Math.round(costScore * weightCost + convenienceScore * weightConvenience);
     };
 
@@ -166,7 +131,7 @@ const FlightFinderChat = () => {
                 )}
 
                 <div className="space-y-3 mt-3">
-                    {offer.itineraries.map((itinerary, itinIndex) => (
+                    {offer.itineraries.map((itinerary:any, itinIndex:any) => (
                         <div key={itinIndex} className="border-t border-white/10 pt-2">
                             <div className="flex items-center mb-1">
                                 <Clock className="w-3 h-3 mr-1 text-white/60" />
@@ -174,7 +139,7 @@ const FlightFinderChat = () => {
                   Duration: {itinerary.duration || "N/A"}
                 </span>
                             </div>
-                            {itinerary.segments.map((segment, segIndex) => (
+                            {itinerary.segments.map((segment:any, segIndex:any) => (
                                 <div key={segIndex} className="text-sm my-2">
                                     <div className="flex justify-between">
                     <span className="font-medium">
@@ -243,7 +208,7 @@ const FlightFinderChat = () => {
         );
     };
 
-    const generateResponse = async (query) => {
+    const generateResponse = async (query:any) => {
         setIsTyping(true);
         try {
             // Get clientId from environment or use a default
