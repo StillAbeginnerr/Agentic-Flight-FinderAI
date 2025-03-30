@@ -530,35 +530,54 @@ const FlightFinderChat = () => {
                                                 message.role === "user" ? "text-right" : "text-left"
                                             }`}
                                         >
-                                            {message.content}
+                                            {message.role === "assistant" ? (
+                                                // Format assistant messages into bullet points
+                                                <ul className="list-disc pl-5 space-y-2 text-white/80">
+                                                    {message.content
+                                                        .split(". ")
+                                                        .filter((line) => line.trim() !== "")
+                                                        .map((line, idx) => (
+                                                            <li key={idx}>{line.trim()}.</li>
+                                                        ))}
+                                                </ul>
+                                            ) : (
+                                                // Regular text for user messages
+                                                <p>{message.content}</p>
+                                            )}
                                         </div>
                                     ) : (
                                         <div className="space-y-2 w-full">
-                                            {Array.isArray(message.content) && message.content.map((offer, idx) => {
-                                                // Determine min and max prices for cost scoring
-                                                const prices = message.content as FlightOffer[];
-                                                const priceValues = prices.map(f => parseFloat(f.price.total));
-                                                const minPrice = Math.min(...priceValues);
-                                                const maxPrice = Math.max(...priceValues);
+                                            {Array.isArray(message.content) &&
+                                                message.content.map((offer, idx) => {
+                                                    // Determine min and max prices for cost scoring
+                                                    const prices = message.content as FlightOffer[];
+                                                    const priceValues = prices.map((f) => parseFloat(f.price.total));
+                                                    const minPrice = Math.min(...priceValues);
+                                                    const maxPrice = Math.max(...priceValues);
 
-                                                // Extract user preferences from the offer's scores
-                                                const userPreferences: UserPreferences = {
-                                                    preferredTime: parsePreferredTime(messages.find(m => m.role === "user")?.content as string || ""),
-                                                    directFlight: parseDirectFlight(messages.find(m => m.role === "user")?.content as string || ""),
-                                                };
+                                                    // Extract user preferences from the offer's scores
+                                                    const userPreferences: UserPreferences = {
+                                                        preferredTime: parsePreferredTime(
+                                                            messages.find((m) => m.role === "user")?.content as string || ""
+                                                        ),
+                                                        directFlight: parseDirectFlight(
+                                                            messages.find((m) => m.role === "user")?.content as string || ""
+                                                        ),
+                                                    };
 
-                                                return (
-                                                    <FlightOfferComponent
-                                                        key={idx}
-                                                        offer={offer}
-                                                        userPreferences={userPreferences}
-                                                        minPrice={minPrice}
-                                                        maxPrice={maxPrice}
-                                                    />
-                                                );
-                                            })}
+                                                    return (
+                                                        <FlightOfferComponent
+                                                            key={idx}
+                                                            offer={offer}
+                                                            userPreferences={userPreferences}
+                                                            minPrice={minPrice}
+                                                            maxPrice={maxPrice}
+                                                        />
+                                                    );
+                                                })}
                                         </div>
                                     )}
+
                                 </div>
                             </div>
                         ))}
